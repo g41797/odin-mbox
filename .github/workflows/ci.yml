@@ -28,11 +28,11 @@ jobs:
       - name: Build & Test
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./ -vet -strict-style -o:none -debug
-            odin test ./ -vet -strict-style -disallow-do -o:none -debug
+            odin build ./ -vet -strict-style -o:none -debug -out:build_none
+            odin test ./ -vet -strict-style -disallow-do -o:none -debug -out:test_none
           else
-            odin build ./ -vet -strict-style -o:"${{ matrix.opt }}"
-            odin test ./ -vet -strict-style -disallow-do -o:"${{ matrix.opt }}"
+            odin build ./ -vet -strict-style -o:"${{ matrix.opt }}" -out:build_${{ matrix.opt }}
+            odin test ./ -vet -strict-style -disallow-do -o:"${{ matrix.opt }}" -out:test_${{ matrix.opt }}
           fi
 
       - name: Check Documentation

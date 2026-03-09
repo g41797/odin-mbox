@@ -28,15 +28,13 @@ jobs:
       - name: Build & Test
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            echo "Running NONE optimization with DEBUG"
-            odin build . -vet -strict-style -o:none -debug
-            odin test . -vet -strict-style -disallow-do -o:none -debug
+            odin build ./ -vet -strict-style -o:none -debug
+            odin test ./ -vet -strict-style -disallow-do -o:none -debug
           else
-            echo "Running ${{ matrix.opt }} optimization without DEBUG"
-            odin build . -vet -strict-style -o:"${{ matrix.opt }}"
-            odin test . -vet -strict-style -disallow-do -o:"${{ matrix.opt }}"
+            odin build ./ -vet -strict-style -o:"${{ matrix.opt }}"
+            odin test ./ -vet -strict-style -disallow-do -o:"${{ matrix.opt }}"
           fi
 
       - name: Check Documentation
         run: |
-          odin doc . -all-packages
+          odin doc ./ -all-packages

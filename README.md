@@ -2,6 +2,8 @@
 
 # odin-mbox
 
+[![CI](https://github.com/g41797/odin-mbox/actions/workflows/ci.yml/badge.svg)](https://github.com/g41797/odin-mbox/actions/workflows/ci.yml)
+
 Inter-thread mailbox library for Odin. Thread-safe. Zero-allocation.
 
 Port of [mailbox](https://github.com/g41797/mailbox) (Zig). Used by [otofu](https://github.com/g41797/otofu).
@@ -56,7 +58,7 @@ Odin already has `core:sync/chan` — Go-style typed channels. If that is enough
 
 **Sender always owns** means: `mbox` never copies your message. It links your struct directly into the queue. You own the memory from creation to destruction. The mailbox only borrows the `node` field while the message is queued. No allocator is ever touched inside mailbox operations.
 
-**nbio integration** is the strongest reason to use `mbox`. `Loop_Mailbox` wakes an nbio event loop when a message arrives. `core:sync/chan` cannot do this. 
+**nbio integration** is the strongest reason to use `mbox`. `Loop_Mailbox` wakes an nbio event loop when a message arrives. `core:sync/chan` cannot do this.
 
 ---
 
@@ -196,7 +198,7 @@ odin-mbox/
   examples/          # Runnable examples (negotiation, stress)
   tests/             # @test procs
   design/            # Design docs and STATUS.md
-  
+
 ```
 
 ---

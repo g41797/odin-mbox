@@ -49,23 +49,6 @@ send :: proc(m: ^Mailbox($T), msg: ^T) -> bool where intrinsics.type_has_field(T
 	return true
 }
 
-// try_receive returns a message if one is available, without blocking.
-try_receive :: proc(
-	m: ^Mailbox($T),
-) -> (
-	msg: ^T,
-	ok: bool,
-) where intrinsics.type_has_field(T, "node"),
-	intrinsics.type_field_type(T, "node") ==
-	list.Node {
-	sync.mutex_lock(&m.mutex)
-	defer sync.mutex_unlock(&m.mutex)
-	if m.len == 0 {
-		return nil, false
-	}
-	return _pop(m), true
-}
-
 // wait_receive blocks until a message arrives, the mailbox closes, or timeout.
 // Use timeout < 0 for infinite wait.
 wait_receive :: proc(
@@ -114,14 +97,6 @@ wait_receive :: proc(
 		if !ok {
 			return nil, .Timeout
 		}
-	}
-
-	if m.closed {
-		return nil, .Closed
-	}
-	if m.interrupted {
-		m.interrupted = false
-		return nil, .Interrupted
 	}
 
 	msg = _pop(m)

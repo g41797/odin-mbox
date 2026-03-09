@@ -28,24 +28,24 @@ Msg :: struct {
 }
 
 @(test)
-test_send_and_try_receive :: proc(t: ^testing.T) {
+test_send_and_receive :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
 	m := Msg{data = 42}
 
 	ok := mbox.send(&mb, &m)
 	testing.expect(t, ok, "send should return true")
 
-	got, ok2 := mbox.try_receive(&mb)
-	testing.expect(t, ok2, "try_receive should return ok")
-	testing.expect(t, got != nil && got.data == 42, "try_receive wrong data")
+	got, err := mbox.wait_receive(&mb, 0)
+	testing.expect(t, err == .None, "wait_receive should return .None")
+	testing.expect(t, got != nil && got.data == 42, "wait_receive wrong data")
 }
 
 @(test)
-test_try_receive_empty :: proc(t: ^testing.T) {
+test_empty_returns_timeout :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	got, ok := mbox.try_receive(&mb)
-	testing.expect(t, !ok, "try_receive on empty mailbox should return ok=false")
-	testing.expect(t, got == nil, "try_receive on empty mailbox should return nil")
+	got, err := mbox.wait_receive(&mb, 0)
+	testing.expect(t, err == .Timeout, "empty mailbox should return .Timeout")
+	testing.expect(t, got == nil, "empty mailbox should return nil message")
 }
 
 @(test)
@@ -169,8 +169,8 @@ test_reuse_via_zero :: proc(t: ^testing.T) {
 	ok := mbox.send(&mb, &m)
 	testing.expect(t, ok, "send after reinitialization should succeed")
 
-	got, ok2 := mbox.try_receive(&mb)
-	testing.expect(t, ok2 && got != nil && got.data == 7, "try_receive should return message")
+	got, err2 := mbox.wait_receive(&mb, 0)
+	testing.expect(t, err2 == .None && got != nil && got.data == 7, "wait_receive should return message")
 }
 
 @(test)
@@ -184,9 +184,9 @@ test_fifo_order :: proc(t: ^testing.T) {
 	mbox.send(&mb, &b)
 	mbox.send(&mb, &c)
 
-	got1, _ := mbox.try_receive(&mb)
-	got2, _ := mbox.try_receive(&mb)
-	got3, _ := mbox.try_receive(&mb)
+	got1, _ := mbox.wait_receive(&mb, 0)
+	got2, _ := mbox.wait_receive(&mb, 0)
+	got3, _ := mbox.wait_receive(&mb, 0)
 
 	testing.expect(t, got1 != nil && got1.data == 1, "first message should be 1")
 	testing.expect(t, got2 != nil && got2.data == 2, "second message should be 2")

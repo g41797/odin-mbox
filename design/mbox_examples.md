@@ -19,8 +19,8 @@ Msg :: struct {
 msg := Msg{data = 42}
 ok := mbox.send(&mb, &msg)
 
-// Receiver (non-blocking):
-got, ok := mbox.try_receive(&mb)
+// Receiver (non-blocking poll):
+got, err := mbox.wait_receive(&mb, 0)  // err == .Timeout means no message
 
 // Receiver (blocking, infinite wait):
 got, err := mbox.wait_receive(&mb)
@@ -48,7 +48,7 @@ Msg_Kind :: enum {
 
 // Base struct. All message types start with this.
 Envelope :: struct {
-    node: list.Node,  // required — must be first or at known offset
+    node: list.Node,  // required
     kind: Msg_Kind,
 }
 
@@ -88,8 +88,8 @@ Note: for this pattern, `mb` is `mbox.Mailbox(Envelope)`.
 ## 3. Graceful shutdown
 
 ```odin
-// Sender signals shutdown:
-mbox.close(&mb)
+// Sender signals shutdown (capture remaining if drain is needed — see Pattern 8):
+_, _ = mbox.close(&mb)
 
 // Receiver checks for it:
 msg, err := mbox.wait_receive(&mb)
@@ -176,8 +176,8 @@ for i in 0 ..< N {
     mbox.send(&mb, &msgs[i])
 }
 
-// After all producers finish:
-mbox.close(&mb)
+// After all producers finish (capture remaining if drain is needed — see Pattern 8):
+_, _ = mbox.close(&mb)
 ```
 
 See `examples/stress.odin` for a working version of this pattern.

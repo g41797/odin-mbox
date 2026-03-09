@@ -86,8 +86,7 @@ When `close()` returns, ownership returns to the caller via the returned `list.L
 
 ### API
 - `send(msg)` — adds message, signals one waiter.
-- `try_receive()` — checks for message, returns immediately.
-- `wait_receive(timeout)` — blocks until message arrives, timeout, or interrupt.
+- `wait_receive(timeout)` — blocks until message arrives, timeout, or interrupt. Use `timeout=0` for non-blocking poll.
 - `interrupt()` — wakes one waiter with `.Interrupted`. Returns false if already interrupted or closed. Flag is self-clearing.
 - `close()` — blocks new sends, wakes all waiters with `.Closed`. Returns `(list.List, bool)` — remaining messages and whether this was the first close.
 
@@ -101,8 +100,9 @@ sync.cond_signal(&m.cond)
 ### Internal receive pattern
 ```odin
 raw := list.pop_front(&m.list)
-msg = container_of(raw, T, "node")
 m.len -= 1
+msg = container_of(raw, T, "node")
+sync.cond_signal(&m.cond)   // wake next waiter if more messages remain
 ```
 
 ---

@@ -1,0 +1,8 @@
+*.sh linguist-detectable=false
+*.html linguist-detectable=false
+*.css linguist-detectable=false
+*.js linguist-detectable=false
+*.md linguist-detectable=false
+*.cmd linguist-detectable=false
+*.bat linguist-detectable=false
+*.json linguist-detectable=false

@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        opt: [debug, speed, size, compat]
+        opt: [none, minimal, size, speed, aggressive]
 
     runs-on: ${{ matrix.os }}
 
@@ -23,24 +23,20 @@ jobs:
       - name: Setup Odin
         uses: laytan/setup-odin@v2
         with:
-          # Use 'master' for latest fixes or a specific version like 'dev-2024-05'
           odin-version: master
 
-      - name: Build (Strict Vet)
-        # We build the package to check for compilation and vet errors
-        # -vet: enables all semantic checks
-        # -strict-style: enforces Odin's idiomatic styling
-        # -disallow-do: forces explicit block braces for better readability
+      - name: Build & Test
         run: |
-          odin build . -no-entrypoint -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-
-      - name: Run Tests
-        # We run the tests using the same strict settings
-        # This ensures the logic holds up under different optimization levels
-        run: |
-          odin test . -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+          if [ "${{ matrix.opt }}" = "none" ]; then
+            echo "Running NONE optimization with DEBUG"
+            odin build . -no-entrypoint -vet -strict-style -o:none -debug
+            odin test . -vet -strict-style -disallow-do -o:none -debug
+          else
+            echo "Running ${{ matrix.opt }} optimization without DEBUG"
+            odin build . -no-entrypoint -vet -strict-style -o:"${{ matrix.opt }}"
+            odin test . -vet -strict-style -disallow-do -o:"${{ matrix.opt }}"
+          fi
 
       - name: Check Documentation
-        # Ensures that the code can be parsed for documentation generation
         run: |
           odin doc . -all-packages

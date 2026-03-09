@@ -24,18 +24,19 @@ for opt in "${OPTS[@]}"; do
     echo "${BLUE}Testing configuration: -o:${opt}${NC}"
 
     echo "Running build check..."
-    odin build . \
-        -vet \
-        -strict-style \
-        # -disallow-do \
-        -o:${opt}
+    if [ "${opt}" = "none" ]; then
+        # Add -debug only for none optimization
+        odin build . -vet -strict-style -o:none -debug
+    else
+        odin build . -vet -strict-style -o:"${opt}"
+    fi
 
     echo "Running tests..."
-    odin test . \
-        -vet \
-        -strict-style \
-        -disallow-do \
-        -o:${opt}
+    if [ "${opt}" = "none" ]; then
+        odin test . -vet -strict-style -disallow-do -o:none -debug
+    else
+        odin test . -vet -strict-style -disallow-do -o:"${opt}"
+    fi
 
     echo "${GREEN}Pass: -o:${opt}${NC}"
 done

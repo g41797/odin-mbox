@@ -7,20 +7,20 @@ Two mailbox types:
 
 User struct contract:
 
-Your struct must have a field named "node" of type ilist.Node.
+Your struct must have a field named "node" of type list.Node.
 The field name is fixed. It is not configurable.
 
 Example:
 
-    import ilist "core:container/intrusive/list"
+    import list "core:container/intrusive/list"
 
     My_Msg :: struct {
-        node: ilist.Node,   // required — field name must be "node"
+        node: list.Node,   // required — field name must be "node"
         data: int,
     }
 
 This contract is enforced at compile time.
-If your struct does not have a "node: ilist.Node" field,
+If your struct does not have a "node: list.Node" field,
 the compiler will give an error.
 
 Example — worker thread mailbox:

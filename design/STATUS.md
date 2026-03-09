@@ -53,15 +53,15 @@ Both types:
 - Zero allocations inside mailbox operations.
 
 User struct contract:
-- Must have a field named `node` of type `ilist.Node`.
+- Must have a field named `node` of type `list.Node`.
 - Field name is fixed. Not configurable.
 - Enforced at compile time via `where` clause on all procs.
 
 ```odin
-import ilist "core:container/intrusive/list"
+import list "core:container/intrusive/list"
 
 My_Msg :: struct {
-    node: ilist.Node,  // required
+    node: list.Node,  // required
     data: int,
 }
 ```
@@ -84,7 +84,7 @@ My_Msg :: struct {
 - Document rules apply to all markdown files
 - Session Log: newest entry at top
 - Internal storage: `core:container/intrusive/list`
-- User struct field: must be named `node`, type `ilist.Node` — fixed, documented
+- User struct field: must be named `node`, type `list.Node` — fixed, documented
 - `where` clause enforces field contract on all procs at compile time
 
 ## Open Questions
@@ -103,22 +103,24 @@ My_Msg :: struct {
 - Explored current odin-mbox state
 - Decided folder structure (Variant A)
 - Decided infrastructure-first approach
-- Decided to use `ilist.List` as internal storage
-- Decided fixed field name `node: ilist.Node` — enforced by `where` clause
+- Decided to use `list.List` as internal storage
+- Decided fixed field name `node: list.Node` — enforced by `where` clause
 - Created overhaul plan
 - Stage 0: Created design/STATUS.md
 - Stage 1: Created folders (`examples/`, `tests/`, `_orig/`), moved originals to `_orig/`
 - Stage 2: Created mock files (`doc.odin`, `mbox.odin`, `loop_mbox.odin`, `examples/negotiation.odin`, `examples/stress.odin`, `tests/all_test.odin`)
 - Stage 3: Fixed `build_and_test.sh` and `build_and_test.cmd` — all 5 opt levels pass locally
 - Stage 4: Fixed `.github/workflows/ci.yml` — 15 jobs (3 OS × 5 opt), fail-fast disabled
+- Stage 5: All 15 CI jobs green (3 OS × 5 opt)
+- Fix: `odin doc` step changed from `-all-packages` to 3 separate calls per package
 
 **Note**:
 - `-vet` with generic structs does not count struct field types as import usage.
 - Workaround: private type aliases at file scope force import registration.
-- Example: `@(private) _Node :: ilist.Node`
+- Example: `@(private) _Node :: list.Node`
+- `odin doc ./ -all-packages` dumps entire stdlib. Use `odin doc ./` per package instead.
 
 **Next**:
-- Stage 5: Push to GitHub, verify all 15 CI jobs green
 - Stage 6: Replace mocks with real implementation
 - Stage 7: Replace mock examples with real examples
 - Stage 8: Replace mock tests with real tests

@@ -1,13 +1,13 @@
 package examples
 
-import ilist "core:container/intrusive/list"
-import "core:nbio"
 import mbox ".."
+import list "core:container/intrusive/list"
+import "core:nbio"
 
 // Msg is the shared node type used in all examples.
-// Field "node" is required by mbox — fixed name, type ilist.Node.
+// Field "node" is required by mbox — fixed name, type list.Node.
 Msg :: struct {
-	node: ilist.Node,
+	node: list.Node,
 	data: int,
 }
 

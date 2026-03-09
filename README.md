@@ -1,3 +1,5 @@
+![](_logo/gold_mbox.png)
+
 # odin-mbox
 
 Inter-thread mailbox library for Odin. Thread-safe. Zero-allocation.

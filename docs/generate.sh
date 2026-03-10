@@ -25,8 +25,14 @@ cd build
 find . -name "index.html" -exec sed -i '/<h2 id="pkg-generation-information">/,/<p>Generated with .*<\/p>/d' {} +
 find . -name "index.html" -exec sed -i '/<li><a href="#pkg-generation-information">/d' {} +
 
-# Ensure all links to the package documentation include the trailing slash
-find . -name "index.html" -exec sed -i 's|href="/odin-mbox"|href="/odin-mbox/"|g' {} +
+# Ensure links are relative for GitHub Pages compatibility
+# In the root index.html, use ./odin-mbox/
+sed -i 's|href="/odin-mbox|href="./odin-mbox|g' index.html
+sed -i 's|href="./odin-mbox"|href="./odin-mbox/"|g' index.html
+
+# In subdirectories, use ../odin-mbox/ (if any other index.html files exist)
+find . -mindepth 2 -name "index.html" -exec sed -i 's|href="/odin-mbox|href="../odin-mbox|g' {} +
+find . -mindepth 2 -name "index.html" -exec sed -i 's|href="../odin-mbox"|href="../odin-mbox/"|g' {} +
 
 cd ..
 

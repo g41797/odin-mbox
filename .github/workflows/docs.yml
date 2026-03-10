@@ -24,6 +24,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -33,12 +34,11 @@ jobs:
       - name: Get and build Odin docs generator
         run: |
           mkdir -p tools
-          cd /home/runner
-          git clone https://github.com/odin-lang/pkg.odin-lang.org odin-doc
-          cd odin-doc
-          # Build renderer and place it where generate.sh expects it
+          # Clone to a temporary location outside the workspace to avoid confusion
+          git clone https://github.com/odin-lang/pkg.odin-lang.org /home/runner/odin-doc
+          cd /home/runner/odin-doc
+          # Build renderer and place it in the workspace tools directory
           odin build . -out:$GITHUB_WORKSPACE/tools/odin-doc -o:speed
-      - uses: actions/checkout@v4
       - name: Generate documentation
         run: ./docs/generate.sh
       - uses: actions/configure-pages@v3

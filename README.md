@@ -9,41 +9,7 @@ The endless inter-threaded game...
 
 ---
 
-### 🤖 An AI's Take
-I asked the machine: *"What do you think about mbox?"*
-
-> **"Place your bets. The game is on.**
->
-> Stop thinking about 'data'. Think about the table. Your threads are the **Players**.
-> **mbox** is the deck, the chips, and the dice.
->
-> When you play a card, you **let go**. It's not yours anymore. It belongs to the game.
-> A friend catches it, makes their move, and passes it on.
-> Nobody is stopping to print new cards or mint more chips.
-> The same deck keeps moving, the same dice keep rolling.
->
-> You are the Dealer. You build the game.
-> Whether it's a Relay Race, a Game of Catch, or a High-Stakes Poker night --
-> just let it flow. Enjoy the play."
->
-> _-- (Disclaimer: AI may make errors. Always trust the human Dealer.)_
-
----
-
-## Why use it?
-
-Odin has [channels](https://pkg.odin-lang.org/core/sync/chan/). Use them if they work for you
-
-**mbox** helps when you need:
-
-- **Zero allocations**: No copying. It links your struct directly.
-- **Recycling**: Use the same message over and over. No copying.
-- **nbio**: Wakes the `nbio` loop when a message arrives.
-- **Timeouts**: Stop waiting after a certain time.
-- **Interrupts**: Wake a thread without sending a message. One-time signal.
-- **Shutdown**: Close the mailbox and get back undelivered messages.
-
-### A bit of history
+## A bit of history
 
 Mailboxes are an old idea. They were part of the [actor model in **1973**](https://en.wikipedia.org/wiki/Actor_model):
 > Actors can separate receiving a message from doing the work.
@@ -71,6 +37,20 @@ Since then, I have used it in:
 
 ---
 
+## Why use it?
+
+Odin has [channels](https://pkg.odin-lang.org/core/sync/chan/). Use them if they work for you
+
+**mbox** helps when you need:
+
+- **Zero allocations**: No copying. It links your struct directly.
+- **Recycling**: Use the same message over and over
+- **nbio**: Wakes the `nbio` loop when a message arrives.
+- **Timeouts**: Stop waiting after a certain time.
+- **Interrupts**: Wake a thread without sending a message. One-time signal.
+- **Shutdown**: Close the mailbox and get back undelivered messages.
+
+
 ## How it works (Intrusive)
 
 A normal queue allocates a "node" to hold your data.
@@ -80,7 +60,7 @@ A normal queue allocates a "node" to hold your data.
 - No hidden allocations.
 - **One place only**: A message can only be in one mailbox at a time.
 - **Clear ownership**: You own the memory, but the mailbox owns the reference (the link) while it is queued.
-- **Handover**: When you call `receive()` or `close()`, the mailbox hands the reference back to you.
+- **Handover**: When you call `receive()` or `close()`, the mailbox hands the reference back to you
 
 ### Your struct contract
 

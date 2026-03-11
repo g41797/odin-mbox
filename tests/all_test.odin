@@ -3,6 +3,7 @@ package tests
 import "core:testing"
 import "core:thread"
 import "core:time"
+import "core:sync"
 import list "core:container/intrusive/list"
 import examples "../examples"
 import mbox ".."
@@ -97,17 +98,19 @@ test_close_blocks_send :: proc(t: ^testing.T) {
 test_close_wakes_waiter :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
 	result: mbox.Mailbox_Error
+	done: sync.Sema
 
 	// Start a waiter thread.
-	thread.run_with_poly_data2(&mb, &result, proc(mb: ^mbox.Mailbox(Msg), result: ^mbox.Mailbox_Error) {
+	thread.run_with_poly_data3(&mb, &result, &done, proc(mb: ^mbox.Mailbox(Msg), result: ^mbox.Mailbox_Error, done: ^sync.Sema) {
 		_, err := mbox.wait_receive(mb)
 		result^ = err
+		sync.sema_post(done)
 	})
 
 	time.sleep(10 * time.Millisecond)
 	_, _ = mbox.close(&mb)
-	time.sleep(20 * time.Millisecond)
-
+	
+	sync.sema_wait(&done)
 	testing.expect(t, result == .Closed, "waiter should get .Closed after close()")
 }
 
@@ -143,17 +146,22 @@ test_double_close :: proc(t: ^testing.T) {
 test_interrupt_wakes_waiter :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
 	result: mbox.Mailbox_Error
+	done: sync.Sema
 
 	// Start a waiter thread.
-	thread.run_with_poly_data2(&mb, &result, proc(mb: ^mbox.Mailbox(Msg), result: ^mbox.Mailbox_Error) {
+	thread.run_with_poly_data3(&mb, &result, &done, proc(mb: ^mbox.Mailbox(Msg), result: ^mbox.Mailbox_Error, done: ^sync.Sema) {
 		_, err := mbox.wait_receive(mb)
 		result^ = err
+		sync.sema_post(done)
 	})
 
+	// Wait a bit to ensure the thread is actually waiting.
 	time.sleep(10 * time.Millisecond)
 	ok := mbox.interrupt(&mb)
 	testing.expect(t, ok, "interrupt should return true on first call")
-	time.sleep(20 * time.Millisecond)
+	
+	// Wait for the thread to finish processing.
+	sync.sema_wait(&done)
 	testing.expect(t, result == .Interrupted, "waiter should get .Interrupted after interrupt()")
 
 	// Flag is self-cleared — second interrupt() should succeed now

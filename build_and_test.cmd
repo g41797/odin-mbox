@@ -20,6 +20,17 @@ for %%o in (%OPTS%) do (
         exit /b !errorlevel!
     )
 
+    echo   build pool lib...
+    if "%%o"=="none" (
+        odin build ./pool/ -build-mode:lib -vet -strict-style -o:none -debug
+    ) else (
+        odin build ./pool/ -build-mode:lib -vet -strict-style -o:%%o
+    )
+    if !errorlevel! neq 0 (
+        echo [ERROR] pool build failed for -o:%%o
+        exit /b !errorlevel!
+    )
+
     echo   build examples...
     if "%%o"=="none" (
         odin build ./examples/ -build-mode:lib -vet -strict-style -o:none -debug
@@ -42,6 +53,17 @@ for %%o in (%OPTS%) do (
         exit /b !errorlevel!
     )
 
+    echo   test pool/...
+    if "%%o"=="none" (
+        odin test ./pool/ -vet -strict-style -disallow-do -o:none -debug
+    ) else (
+        odin test ./pool/ -vet -strict-style -disallow-do -o:%%o
+    )
+    if !errorlevel! neq 0 (
+        echo [ERROR] pool tests failed for -o:%%o
+        exit /b !errorlevel!
+    )
+
     echo   pass: %%o
 )
 
@@ -49,6 +71,8 @@ echo.
 echo --- doc smoke test ---
 odin doc ./
 if !errorlevel! neq 0 ( echo [ERROR] doc failed for root & exit /b !errorlevel! )
+odin doc ./pool/
+if !errorlevel! neq 0 ( echo [ERROR] doc failed for pool & exit /b !errorlevel! )
 odin doc ./examples/
 if !errorlevel! neq 0 ( echo [ERROR] doc failed for examples & exit /b !errorlevel! )
 odin doc ./tests/

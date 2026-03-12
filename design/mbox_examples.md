@@ -101,7 +101,8 @@ _, _ = mbox.close(&mb)
 msg, err := mbox.wait_receive(&mb)
 switch err {
 case .None:
-    // process msg
+    // process msg, then free it
+    free(msg)
 case .Closed:
     // mailbox is closed, stop receiving
 case .Timeout:
@@ -147,18 +148,23 @@ nbio.tick(0) // Ensure the loop is initialized for wake-up (essential for macOS)
 
 reply_mb: mbox.Mailbox(Reply)
 
-// Worker thread:
-req := Req{data = 10}
-mbox.send_to_loop(&loop_mb, &req)
+// Worker thread: allocate request, send, wait for reply, free reply.
+req := new(Req)
+req.data = 10
+mbox.send_to_loop(&loop_mb, req)
 
 reply, err := mbox.wait_receive(&reply_mb)
+if reply != nil {
+    // use reply.data
+    free(reply) // worker frees what it allocated
+}
 
-// nbio loop — drain on wake:
+// nbio loop — drain on wake, reuse received message as reply:
 for {
     req, ok := mbox.try_receive_loop(&loop_mb)
     if !ok { break }
-    r := Reply{data = req.data + 1}
-    mbox.send(&reply_mb, &r)
+    req.data = req.data + 1   // modify in place
+    mbox.send(&reply_mb, req) // send same object back — worker will free it
 }
 ```
 
@@ -206,9 +212,10 @@ A `list.Node` can only be in one list at a time.
 If your struct is already in another intrusive list, remove it first.
 
 ```odin
+// msg must be heap-allocated or from a pool — never stack-allocated.
 // Remove from existing list before sending to mailbox:
 list.remove(&other_list, &msg.node)
-ok := mbox.send(&mb, &msg)
+ok := mbox.send(&mb, msg)
 ```
 
 Do not send a message that is already queued. The result is a broken list.
@@ -224,7 +231,8 @@ Iterate it to process or free them.
 remaining, was_open := mbox.close(&mb)
 for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
     msg := container_of(node, Msg, "node")
-    // process or free msg
+    free(msg)        // heap: free it
+    // pool_pkg.put(&p, msg) // pool: return it
 }
 ```
 
@@ -248,10 +256,15 @@ mb = {}
 
 ## 9. Relay Race / Endless Game (Circular Passing)
 
-Pass a single message between multiple threads in a circle.
+Pass a single heap-allocated message between multiple threads in a circle.
 Ownership moves from Runner 1 to 2, 2 to 3, and so on.
+One thread allocates the message. One thread frees it after the game ends.
 
 ```odin
+// Before starting threads: allocate once on the heap.
+baton := new(Msg)
+mbox.send(&mboxes[0], baton)
+
 // Runner i:
 for {
     baton, err := mbox.wait_receive(my_mb)
@@ -261,6 +274,10 @@ for {
 
     mbox.send(next_mb, baton)
 }
+
+// After all threads exit: free the baton.
+// (It is in exactly one mailbox or held by one thread at close time.)
+free(baton)
 ```
 
 This pattern is perfect for:

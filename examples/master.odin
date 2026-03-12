@@ -13,7 +13,8 @@ Master :: struct {
 
 // master_init sets up the pool with 8 pre-allocated messages and a cap of 64.
 master_init :: proc(m: ^Master) -> bool {
-	return pool_pkg.init(&m.pool, initial_msgs = 8, max_msgs = 64)
+	ok, _ := pool_pkg.init(&m.pool, initial_msgs = 8, max_msgs = 64, reset = nil)
+	return ok
 }
 
 // master_shutdown closes the inbox, returns undelivered messages to the pool, then destroys the pool.
@@ -42,7 +43,7 @@ master_example :: proc() -> bool {
 		return false
 	}
 
-	msg := pool_pkg.get(&m.pool)
+	msg, _ := pool_pkg.get(&m.pool)
 	if msg == nil {
 		master_shutdown(&m)
 		return false

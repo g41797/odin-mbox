@@ -18,7 +18,7 @@ stress_example :: proc() -> bool {
 
 	// Pre-allocate N messages. Producers get from pool; consumer puts back.
 	shared_pool: pool_pkg.Pool(Msg)
-	if !pool_pkg.init(&shared_pool, initial_msgs = N, max_msgs = N) {
+	if ok, _ := pool_pkg.init(&shared_pool, initial_msgs = N, max_msgs = N, reset = nil); !ok {
 		return false
 	}
 
@@ -53,7 +53,7 @@ stress_example :: proc() -> bool {
 			&shared_pool,
 			proc(mb: ^mbox.Mailbox(Msg), p: ^pool_pkg.Pool(Msg)) {
 				for _ in 0 ..< N / P {
-					msg := pool_pkg.get(p)
+					msg, _ := pool_pkg.get(p)
 					if msg != nil {
 						mbox.send(mb, msg)
 					}

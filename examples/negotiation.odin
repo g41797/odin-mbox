@@ -2,14 +2,17 @@ package examples
 
 import mbox ".."
 import list "core:container/intrusive/list"
+import "core:mem"
 import "core:nbio"
 import "core:thread"
 
 // Msg is the shared message type for all examples.
-// Field "node" is required by mbox. The name is fixed. The type is list.Node.
+// "node" is required by mbox (and pool). The name is fixed. The type is list.Node.
+// "allocator" is required by pool — set by pool.get on every retrieval.
 Msg :: struct {
-	node: list.Node,
-	data: int,
+	node:      list.Node,
+	allocator: mem.Allocator,
+	data:      int,
 }
 
 // _Worker holds pointers to both mailboxes and the result.

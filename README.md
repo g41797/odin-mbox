@@ -77,6 +77,9 @@ My_Msg :: struct {
 
 The compiler checks this for you. If the field is missing, it won't compile.
 
+> If you also use the `pool` package, add an `allocator: mem.Allocator` field.
+> The pool sets it on every `get`. The compiler enforces this too.
+
 ---
 
 ## Two mailbox types
@@ -141,10 +144,10 @@ mbox.interrupt(&mb) // waiter gets .Interrupted
 // shutdown:
 remaining, _ := mbox.close(&mb) // all waiters get .Closed
 
-// get back undelivered messages:
+// free every undelivered message:
 for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
     msg := container_of(node, My_Msg, "node")
-    // ... process or free
+    free(msg) // or pool.put if using a pool
 }
 ```
 
@@ -158,11 +161,13 @@ nbio.tick(0) // Ensure loop is ready for wake-ups (essential for macOS)
 for {
     msg, ok := mbox.try_receive_loop(&loop_mb)
     if !ok { break }
-    // process msg
+    // process msg, then free or return to pool
 }
 
-// sender thread:
-mbox.send_to_loop(&loop_mb, &msg)
+// sender thread: allocate on heap, send.
+msg := new(My_Msg)
+msg.data = 42
+mbox.send_to_loop(&loop_mb, msg)
 ```
 
 ---
@@ -208,13 +213,23 @@ For high-throughput use, recycle messages with the companion `pool` package.
 
 ```odin
 import pool_pkg "path/to/odin-mbox/pool"
+import "core:mem"
+
+// Your struct — both fields required when using pool.
+My_Msg :: struct {
+    node:      list.Node,     // required by mbox and pool
+    allocator: mem.Allocator, // required by pool
+    data:      int,
+}
 
 // Setup:
 p: pool_pkg.Pool(My_Msg)
-pool_pkg.init(&p, initial_msgs = 64, max_msgs = 256)
+if ok, _ := pool_pkg.init(&p, initial_msgs = 64, max_msgs = 256, reset = nil); !ok {
+    return
+}
 
 // Sender: get from pool, fill, send.
-msg := pool_pkg.get(&p)
+msg, _ := pool_pkg.get(&p)
 msg.data = 42
 mbox.send(&mb, msg)
 

@@ -62,7 +62,7 @@
 - Wants a clean loop (tick -> process commands -> repeat).
 
 ### Can they live together?
-- Yes! 
+- Yes!
 - The Engine uses **Commands** to start a task.
 - The Engine uses **Callbacks** to handle the raw I/O.
 - The Callbacks send **Commands** back to the Engine.
@@ -103,7 +103,7 @@ for !done {
 on_any_io_done :: proc(op: ^nbio.Operation) {
     nbio.detach(op)
     push_to_finished_queue(op)
-    nbio.post_command(op.l, .Wake_Up) 
+    nbio.post_command(op.l, .Wake_Up)
 }
 ```
 
@@ -131,7 +131,7 @@ on_any_io_done :: proc(op: ^nbio.Operation) {
 ...
 
 - **User**: Wants to talk to a server at `127.0.0.1:7099`.
-- **User**: Makes a `Hello_Msg`. 
+- **User**: Makes a `Hello_Msg`.
 - **User**: It has the server address and some extra user data.
 - **User**: Sends the message to the Engine.
 - **Engine**: Sees the message after `tick()`.
@@ -172,6 +172,51 @@ on_any_io_done :: proc(op: ^nbio.Operation) {
 - Both are atomic.
 ---
 
+## The Lost Wake-up Problem
+
+### The Claim
+Set up nbio before sending signals. 
+The loop must be listening to catch signals for external queues.
+
+### The AnalysisA "lost wake-up" is a race condition.
+It happens when a signal is sent but no one is ready.
+This matters for Loop_Mailbox because it is an external queue.
+nbio does not check external queues before it sleeps.
+
+#### 1. Lazy Setup (macOS/BSD/Linux)
+- nbio might wait to tell the kernel about the "Wake-up Event".
+- It happens during the first tick.
+- If you call wake_up() before that, the signal might be lost.
+
+#### 2. Windows Optimization
+- nbio only sends a signal if it thinks the loop is .Sleeping.
+- This saves time for internal tasks.
+- But if a message arrives while nbio is starting to sleep, the signal is dropped.
+- The loop thread then sleeps for the full timeout.
+
+### Summary
+nbio wake-up is for internal tasks. 
+It misses our external Loop_Mailbox queue. 
+
+### The Solution: no-op
+A no-op makes wake-up reliable.
+
+#### Internal and External Queues
+- nbio has its own internal queue.
+- It checks this queue right before it sleeps.
+- Loop_Mailbox is an external queue.
+- nbio checks its own queue before sleep. It misses our queue. 
+- We add a no-op to its queue. Now nbio sees our messages too.
+
+#### The Pattern
+1. Put message in Loop_Mailbox.
+2. Add a no-op task to nbio using nbio.timeout(0, noop, loop).
+3. nbio.exec (called by timeout) will call wake_up.
+
+This uses nbio race-protection for our queue. 
+odin-mbox does this in send_to_loop.
+Users do not need manual sync.
+Handle commands and I/O on one thread.
+---
+
 ## References
-- [Official nbio "no-callbacks" Example](https://github.com/odin-lang/examples/blob/master/nbio/no-callbacks/main.odin)
-- [Raw Code Link](https://raw.githubusercontent.com/odin-lang/examples/refs/heads/master/nbio/no-callbacks/main.odin)

@@ -86,7 +86,7 @@ endless_game_example :: proc() -> bool {
 		thread.destroy(threads[i])
 	}
 
-	// All threads are done. Read result and free.
+	// All threads are done. Check the result, then free the dice.
 	result := the_dice.rolls >= ROLLS
 	free(the_dice)
 	return result

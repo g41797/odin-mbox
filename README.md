@@ -156,20 +156,23 @@ for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&rema
 
 ### nbio loop mailbox
 
+For `core:nbio` event loops. It wakes the loop instead of blocking.
+Handle commands and I/O on one thread.
+A no-op makes wake-up work on all systems.
+
 ```odin
 // nbio loop (receiver thread):
 loop_mb.loop = nbio.current_thread_event_loop()
-nbio.tick(0) // Ensure loop is ready for wake-ups (essential for macOS)
 
 for {
-    msg, ok := mbox.try_receive_loop(&loop_mb)
-    if !ok { break }
-    // process msg, then free or return to pool
+    nbio.tick() // process I/O and wake-up tasks
+    for msg, ok := mbox.try_receive_loop(&loop_mb); ok; msg, ok = mbox.try_receive_loop(&loop_mb) {
+        // handle message, then free or return to pool
+    }
 }
 
 // sender thread: allocate on heap, send.
 msg := new(My_Msg)
-msg.data = 42
 mbox.send_to_loop(&loop_mb, msg)
 ```
 

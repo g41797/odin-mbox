@@ -10,7 +10,7 @@ Mailbox types:
 - Mailbox($T): For worker threads. Blocks until a message arrives.
 - Loop_Mailbox($T): For nbio event loops. Wakes the loop instead of blocking.
 
-Basic Requirement:
+Basic requirement:
     import list "core:container/intrusive/list"
 
     My_Msg :: struct {

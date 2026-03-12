@@ -16,6 +16,6 @@ Message allocation rules:
 - Never use stack-allocated messages across threads.
   The stack frame can be freed before the receiving thread reads the message.
 - Use new/free for simple, low-frequency use.
-- Use pool for high-throughput recycling.
+- Use pool for many messages.
 */
 package examples

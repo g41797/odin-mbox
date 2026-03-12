@@ -9,7 +9,7 @@ import "core:mem"
 import "core:sync"
 import "core:time"
 
-// _PoolNode, _PoolMutex, _PoolAllocator, _PoolEvent, _PoolDuration ensure imports are used — required by -vet for generic code.
+// _PoolNode, _PoolMutex, _PoolAllocator, _PoolEvent, _PoolDuration keep -vet happy — it does not count generic field types as import usage.
 @(private)
 _PoolNode :: list.Node
 @(private)
@@ -59,7 +59,7 @@ Pool :: struct($T: typeid) {
 	list:      list.List,
 	curr_msgs: int,
 	max_msgs:  int, // 0 = unlimited
-	state:     Pool_State, // replaces closed: bool
+	state:     Pool_State, // lifecycle state
 	reset:     proc(msg: ^T, e: Pool_Event), // optional, called outside mutex
 }
 
@@ -143,7 +143,7 @@ get :: proc(
 			sync.mutex_unlock(&p.mutex)
 			return nil, .Pool_Empty
 		}
-		// Wait loop: block until a message is available, pool is closed, or timeout expires.
+		// Block until a message is available, the pool is closed, or timeout expires.
 		for p.list.head == nil {
 			if p.state != .Active {
 				sync.mutex_unlock(&p.mutex)
@@ -176,7 +176,7 @@ get :: proc(
 		msg.node = {}
 		msg.allocator = alloc
 		if p.reset != nil {
-			// if message also used in another place, reset increase probablity of failure
+			// reset clears the message and exposes stale-pointer bugs early.
 			p.reset(msg, .Get)
 		}
 		return msg, .Ok

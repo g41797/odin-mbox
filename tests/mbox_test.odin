@@ -144,7 +144,7 @@ test_interrupt_wakes_waiter :: proc(t: ^testing.T) {
 		sync.sema_post(done)
 	})
 
-	// Wait a bit to ensure the thread is actually waiting.
+	// Wait a bit so the thread is actually waiting.
 	time.sleep(10 * time.Millisecond)
 	ok := mbox.interrupt(&mb)
 	testing.expect(t, ok, "interrupt should return true on first call")

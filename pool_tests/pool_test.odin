@@ -384,7 +384,7 @@ test_pool_reset_on_put :: proc(t: ^testing.T) {
 	if msg == nil {
 		return
 	}
-	msg.data = 0 // ensure clean state
+	msg.data = 0 // so we have a clean state
 
 	ret := pool_pkg.put(&p, msg) // reset(.Put) sets bit 1 → data=2, then recycled
 	testing.expect(t, ret == nil, "put should return nil for own message")

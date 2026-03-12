@@ -8,7 +8,7 @@ import list "core:container/intrusive/list"
 import "core:nbio"
 import "core:sync"
 
-// _LoopNode, _LoopMutex, _Loop ensure imports are used — required by -vet for generic code.
+// _LoopNode, _LoopMutex, _Loop keep -vet happy — it does not count generic field types as import usage.
 @(private)
 _LoopNode :: list.Node
 @(private)
@@ -16,8 +16,8 @@ _LoopMutex :: sync.Mutex
 @(private)
 _Loop :: nbio.Event_Loop
 
-// Loop_Mailbox is for nbio event loops. It does not block.
-// It wakes the loop using nbio.wake_up.
+// Loop_Mailbox is a command queue for an nbio event loop.
+// It does not block. It uses a no-op timeout to wake tick().
 // T must have a field named "node" of type list.Node.
 Loop_Mailbox :: struct($T: typeid) {
 	mutex:  sync.Mutex,
@@ -26,6 +26,10 @@ Loop_Mailbox :: struct($T: typeid) {
 	loop:   ^nbio.Event_Loop,
 	closed: bool,
 }
+
+// _noop is the required callback for nbio.timeout. It does nothing.
+@(private)
+_noop :: proc(_: ^nbio.Operation) {}
 
 // send_to_loop adds msg to the mailbox and wakes the nbio loop.
 // Returns false if the mailbox is closed.
@@ -43,7 +47,9 @@ send_to_loop :: proc(
 	list.push_back(&m.list, &msg.node)
 	m.len += 1
 	sync.mutex_unlock(&m.mutex)
-	nbio.wake_up(m.loop)
+
+	// Schedule a no-op so tick() returns and the caller can drain the mailbox.
+	nbio.timeout(0, _noop, m.loop)
 	return true
 }
 
@@ -82,7 +88,9 @@ close_loop :: proc(m: ^Loop_Mailbox($T)) -> (remaining: list.List, was_open: boo
 	m.list = {}
 	m.len = 0
 	sync.mutex_unlock(&m.mutex)
-	nbio.wake_up(m.loop)
+
+	// Wake the loop so it notices the mailbox is closed.
+	nbio.timeout(0, _noop, m.loop)
 	return remaining, true
 }
 

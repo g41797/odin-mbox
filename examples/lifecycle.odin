@@ -15,7 +15,7 @@ lifecycle_example :: proc() -> bool {
 	m := new(Msg)
 	m.data = 100
 
-	// 2. Interrupt the game.
+	// 2. Interrupt — no message yet, so the waiter gets .Interrupted.
 	// Wakes the next waiter with .Interrupted.
 	mbox.interrupt(&mb)
 	_, err := mbox.wait_receive(&mb)
@@ -25,11 +25,11 @@ lifecycle_example :: proc() -> bool {
 	}
 
 	// 3. Send the message.
-	// The mailbox now owns the reference (the link).
+	// The mailbox holds the pointer now.
 	mbox.send(&mb, m)
 
 	// 4. Shutdown.
-	// close() hands back all references to you.
+	// close() returns all undelivered messages.
 	remaining, _ := mbox.close(&mb)
 
 	// 5. Cleanup.

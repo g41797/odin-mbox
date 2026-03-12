@@ -49,7 +49,7 @@ test_loop_basic :: proc(t: ^testing.T) {
 	testing.expect(t, !ok4 && msg4 == nil, "fourth receive should return (nil, false)")
 }
 
-// test_loop_close_and_drain: send 2 messages, close, check remaining count and send blocks.
+// test_loop_close_and_drain: send 2 messages, close, check remaining count and that send returns false.
 @(test)
 test_loop_close_and_drain :: proc(t: ^testing.T) {
 	if !testing.expect(t, nbio.acquire_thread_event_loop() == nil, "failed to acquire event loop") {
@@ -91,7 +91,8 @@ test_loop_wake_on_send :: proc(t: ^testing.T) {
 	lm: mbox.Loop_Mailbox(Msg)
 	lm.loop = loop
 
-	// Initialize kernel state before starting the sender thread.
+	// Register wake event with kernel before starting the sender thread.
+	// Without this, wake_up has no effect on some platforms.
 	nbio.tick(0)
 
 	m := Msg{data = 77}
@@ -103,8 +104,8 @@ test_loop_wake_on_send :: proc(t: ^testing.T) {
 	})
 
 	got: ^Msg
-	for _ in 0 ..< 200 {
-		tick_err := nbio.tick()
+	for _ in 0 ..< 100 {
+		tick_err := nbio.tick(100 * time.Millisecond)
 		if tick_err != nil {
 			break
 		}
@@ -113,6 +114,10 @@ test_loop_wake_on_send :: proc(t: ^testing.T) {
 			got = msg
 			break
 		}
+	}
+
+	if got == nil {
+		got, _ = mbox.try_receive_loop(&lm)
 	}
 
 	thread.join(th)

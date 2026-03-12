@@ -13,7 +13,7 @@ How it works:
 The pool reuses the same "node" field that mbox requires.
 A message is never in both the pool and a mailbox at the same time.
 
-Your struct must have two fields required by the pool where clause:
+Your struct must have two fields:
   - "node" of type list.Node
   - "allocator" of type mem.Allocator  (set by pool.get on every retrieval)
 
@@ -27,15 +27,14 @@ Your struct must have two fields required by the pool where clause:
 	}
 
 Status returns:
-- init returns (bool, Pool_Status): (true, .Ok) on success; (false, .Out_Of_Memory) on pre-alloc failure.
+- init returns (bool, Pool_Status): (true, .Ok) on success; (false, .Out_Of_Memory) on pre-allocation failure.
 - get returns (^T, Pool_Status): .Ok, .Pool_Empty, .Out_Of_Memory, or .Closed.
   With .Pool_Only strategy and timeout parameter:
   - timeout==0 (default): return immediately if empty (.Pool_Empty). Non-blocking.
   - timeout<0: wait forever until put or destroy.
   - timeout>0: wait up to that duration; returns (nil, .Pool_Empty) on expiry.
   - Returns (nil, .Closed) if pool is destroyed while waiting.
-- put returns ^T: nil if the message was recycled or freed; the original pointer if it was foreign
-  (msg.allocator != pool allocator — caller must free it).
+- put returns ^T: nil if recycled or freed. Returns the original pointer if the message is foreign (msg.allocator != pool allocator) — caller must free it.
 
 Lifecycle:
 - Pool_State.Uninit: zero value, init not yet called.
@@ -43,7 +42,7 @@ Lifecycle:
 - Pool_State.Closed: destroyed or init failed.
 
 Optional reset proc:
-- Pass a proc(^T, Pool_Event) to init to register a cleanup/reinit hook.
+- Pass a proc(^T, Pool_Event) to init to register a reset hook.
 - Called with .Get when a recycled message is returned from the free-list.
 - Called with .Put before a message is returned to the free-list (or freed).
 - NOT called for fresh allocations.

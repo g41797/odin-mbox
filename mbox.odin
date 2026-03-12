@@ -8,7 +8,7 @@ import list "core:container/intrusive/list"
 import "core:sync"
 import "core:time"
 
-// _Node and _Mutex ensure imports are used — required by -vet for generic code.
+// _Node and _Mutex keep -vet happy — it does not count generic field types as import usage.
 @(private)
 _Node :: list.Node
 @(private)
@@ -123,8 +123,14 @@ interrupt :: proc(m: ^Mailbox($T)) -> bool where intrinsics.type_has_field(T, "n
 // and returns any unprocessed messages as a list.List.
 // Returns (remaining, true) on first call; ({}, false) if already closed.
 // Reuse: after all waiters have exited, assign zero value: mb = {}
-close :: proc(m: ^Mailbox($T)) -> (remaining: list.List, was_open: bool) where intrinsics.type_has_field(T, "node"),
-	intrinsics.type_field_type(T, "node") == list.Node {
+close :: proc(
+	m: ^Mailbox($T),
+) -> (
+	remaining: list.List,
+	was_open: bool,
+) where intrinsics.type_has_field(T, "node"),
+	intrinsics.type_field_type(T, "node") ==
+	list.Node {
 	sync.mutex_lock(&m.mutex)
 	if m.closed {
 		sync.mutex_unlock(&m.mutex)

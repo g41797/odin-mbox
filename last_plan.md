@@ -299,38 +299,147 @@ All other suites unchanged.
 
 ---
 
-### Stage 6 — Repartitioning  ← NEXT
+### Stage 6a — try_mbox Package  ✓ DONE (Session 77)
 
-**Purpose**:
-- Move `mbox.odin` → `mbox/mbox.odin` (Mailbox only, no mpsc/wakeup deps)
-- Move `loop_mbox.odin` → `loop_mbox/loop_mbox.odin` (Loop_Mailbox — own package)
-- Move `doc.odin` → `mbox/doc.odin`; create `loop_mbox/doc.odin`
-- Create `nbio_mbox/` package: nbio WakeUper impl + convenience init
-- `mbox/` loses all nbio imports
-- `loop_mbox/` has no nbio dependency
-- Update all import paths (breaking change for callers)
-- Existing `tests/` updates: split or retarget to new package paths
-- Update examples, CI scripts, build scripts
+**Purpose**: Rename `poll_mbox/` → `try_mbox/`. Package rename + function rename. No logic changes.
 
-**nbio_mbox/ API**:
-```odin
-package nbio_mbox
+`poll_mbox` was the working name. `poll` and `pool` differ by one letter — easy to misread, easy to mistype.
+Agreed name: `try_mbox`. Receive function: `try_receive`.
 
-// wakeup returns a WakeUper backed by a 24h keepalive timer.
-wakeup :: proc(loop: ^nbio.Event_Loop) -> (wakeup_pkg.WakeUper, bool)
+`poll_mbox/` exists with a working implementation (10 tests pass).
 
-// init_loop_mailbox: convenience — wakeup + loop_mbox.init in one call.
-init_loop_mailbox :: proc(
-    m: ^loop_mbox.Loop_Mailbox($T),
-    loop: ^nbio.Event_Loop,
-) -> loop_mbox.Loop_Mailbox_Error
-```
+**Name rationale**: `try_mbox` — the consumer tries to receive; non-blocking by nature.
+`loop` was rejected: implies nbio event loop, but this package has no nbio dependency.
 
-**Design doc**: `design/loop-mbox-enhancement.md` — Stage 6 section.
+**Why NOT copyable**:
+`mpsc.Queue(T)` contains a `stub` sentinel field. After `mpsc.init`, `head` and `tail`
+point to `&stub` inside the struct. Copying invalidates those pointers.
+`Mbox` inherits this. `init` allocates on heap and returns `^Mbox(T)` — prevents accidental
+stack-allocation and copy.
+
+**Design**:
+- `try_mbox.Mbox(T)` — MPSC queue based mailbox. Not copyable after init.
+- `init` allocates on heap, returns `^Mbox(T)`.
+- `wakeup.WakeUper` optional — zero value = no notification. Consistent with pool.
+- No nbio dependency. Works with any WakeUper or none.
+- `closed: bool` — atomic via `intrinsics.atomic_*`.
+- Receive function is named `try_receive` — explicit non-blocking attempt.
+
+**nbio_mbox integration (Stage 6b)**: factory pattern.
+`init_nbio_mbox` creates the nbio WakeUper and returns `^try_mbox.Mbox(T)`.
+Caller imports root `mbox` once for init, then uses `try_mbox` directly.
+No wrapper type, no redirect procs, no `using`.
+
+**API**: `init`, `send`, `try_receive`, `close`, `length`, `destroy`.
+`close` returns `(list.List, bool)` — unprocessed messages + was_open flag.
+
+**Stall note**: `try_receive` returns `(nil, false)` on MPSC stall — caller retries on next tick.
+`close` drain may miss a message in transit. Call close only after all senders have stopped.
+
+**What changes** (poll_mbox → try_mbox):
+- `package poll_mbox` → `package try_mbox`
+- proc `receive` → `try_receive`
+- test names: `test_send_receive_basic` → `test_send_try_receive_basic`, `test_receive_empty` → `test_try_receive_empty`
+- doc.odin: update description line referencing `receive`
+- `poll_mbox/` folder: DELETE
+
+**Review findings** (apply during implementation):
+- `_MQ` alias: mpsc.Queue(T) is a generic struct field in Mbox — keep alias, `-vet` needs it.
+- `_MA` alias: mem.Allocator is a generic struct field in Mbox — keep alias, `-vet` needs it.
+- test comment fix: "wake should be called once per send" → "wake should be called once per send; 3 sends → count == 3"
+
+**Files**:
+- `poll_mbox/` (entire folder) — DELETE
+- `try_mbox/mbox.odin` (NEW) — package try_mbox
+- `try_mbox/doc.odin` (NEW)
+- `try_mbox/mbox_test.odin` (NEW) — 10 unit tests (white-box, same package)
+
+**Tests (10)**:
+1. `test_init_destroy`
+2. `test_send_try_receive_basic`
+3. `test_try_receive_empty`
+4. `test_send_closed`
+5. `test_close_returns_remaining`
+6. `test_close_idempotent`
+7. `test_length`
+8. `test_waker_called_on_send`
+9. `test_waker_close_on_close`
+10. `test_no_waker`
 
 ---
 
-### Stage 7 — Re-branding
+### Stage 6b — loop_mbox → nbio_mbox (factory refactor)  ✓ DONE (Session 77)
+
+**Purpose**: Replace `loop_mbox.odin` with `nbio_mbox.odin` (factory only). Migrate callers.
+
+**Decisions**:
+- `loop_mbox.odin` **renamed** to `nbio_mbox.odin` — stays in root, still `package mbox`
+- `mbox.odin` and `nbio_mbox.odin` both remain in root. No folder split.
+- `nbio_mbox` becomes a **factory only**: `init_nbio_mbox($T, loop, allocator) -> (^try_mbox.Mbox(T), Loop_Mailbox_Error)`
+- `Loop_Mailbox` struct, `send_to_loop`, `try_receive_loop`, `close_loop`, `stats` — all deleted
+- `Loop_Mailbox_Error` enum **kept** (used as return type of init)
+- `_noop`, keepalive creation, and wakeup state move from loop_mbox into nbio_mbox
+
+**Dependency**:
+```
+nbio_mbox.odin (package mbox) — imports try_mbox/, wakeup/, core:nbio, core:time, core:mem
+```
+
+**Internal state** (heap-allocated, same pattern as wakeup._Sema_State):
+```odin
+@(private)
+_NBio_State :: struct {
+    loop:      ^nbio.Event_Loop,
+    keepalive: ^nbio.Operation,
+    allocator: mem.Allocator,
+}
+```
+
+**WakeUper callbacks**:
+- `_nbio_wake`:  `nbio.timeout(0, _noop, state.loop)` — zero-duration no-op wakes loop
+- `_nbio_close`: `nbio.remove(state.keepalive)`, then `free(state, state.allocator)`
+
+**API**:
+```odin
+// init_nbio_mbox allocates a try_mbox.Mbox wired to the nbio event loop.
+// Returns (nil, .Invalid_Loop) if loop is nil.
+// Returns (nil, .Keepalive_Failed) if keepalive timer or Mbox allocation fails.
+init_nbio_mbox :: proc(
+    $T: typeid,
+    loop: ^nbio.Event_Loop,
+    allocator := context.allocator,
+) -> (^try_mbox.Mbox(T), Loop_Mailbox_Error)
+where intrinsics.type_has_field(T, "node"),
+      intrinsics.type_field_type(T, "node") == list.Node
+```
+
+**Callers updated**:
+
+`tests/loop_test.odin` — 4 tests:
+- `mbox.init_loop_mailbox(&lm, loop)` → `mbox.init_nbio_mbox(Msg, loop)`
+- `mbox.send_to_loop(&lm, msg)` → `try_mbox.send(m, msg)`
+- `mbox.try_receive_loop(&lm)` → `try_mbox.try_receive(m)`
+- `mbox.close_loop(&lm)` → `try_mbox.close(m)` + `try_mbox.destroy(m)`
+- `mbox.stats(&lm)` → `try_mbox.length(m)`
+
+`examples/negotiation.odin` — same pattern:
+- `loop_mb: mbox.Loop_Mailbox(Msg)` → `loop_mb: ^try_mbox.Mbox(Msg)`
+- init_loop_mailbox → init_nbio_mbox
+- send_to_loop → try_mbox.send
+- try_receive_loop → try_mbox.try_receive
+- add defer try_mbox.close + try_mbox.destroy
+
+**Files**:
+- `loop_mbox.odin` — DELETE (replaced by nbio_mbox.odin)
+- `nbio_mbox.odin` — NEW, package mbox, factory only
+- `tests/loop_test.odin` — UPDATE, new API
+- `examples/negotiation.odin` — UPDATE, new API
+- `design/loop-mbox-enhancement.md` — Add Stage 6b section
+- `design/STATUS.md` — Add session entry
+
+---
+
+### Stage 7 — Re-branding  ← NEXT
 
 **Purpose**:
 Repo name `odin-mbox` and description no longer match the library scope.
@@ -371,15 +480,6 @@ Details TBD when we reach this stage.
 
 ## Strategic Analysis & Technical Refinements
 
-### 1. MPSC Stats (Stage 3)
-- **Context**: Odin's `core:sync/chan` provides `len()` and `cap()` functions.
-- **Decision**: We will keep the `stats` (or `len`) function to match the Odin environment.
-- **Implementation**: Add an atomic length counter to the `mpsc.Queue`. This is necessary because pointer comparison is unreliable during concurrent push/pop operations.
-
-### 2. WakeUper Context (Stage 4)
-- **Status**: Closed.
-- **Decision**: Do NOT use `#contextless`. Users may need `context.logger` or custom allocators inside wake callbacks. Follows existing codebase pattern.
-
 ### 3. Re-branding (Stage 7)
 - **Preferred Name**: `odin-itc` (Inter-Thread Communication).
 - **Advice**: This name is very descriptive and fits well with other Odin libraries. It honors the Zig roots while acknowledging the move to a general communication toolkit.
@@ -399,9 +499,74 @@ Details TBD when we reach this stage.
 - **Context**: In `pool.put`, the `reset` hook is called outside the mutex.
 - **Consideration**: We must ensure that if one thread calls `destroy` (marking state `.Closed`) while another is in the middle of a `put.reset`, no invalid operations occur. A dedicated stress test is needed to verify this specific window.
 
-### 8. Pool Statistics API
-- **Recommendation**: Add a public `pool.length(p)` or `pool.stats(p)` procedure. 
-- **Reason**: This matches the API pattern of `mbox` and `mpsc`, providing a read-only, consistent way to check the free-list size without accessing internal struct fields.
+
+### 9. Nbio Waker Overwhelming Risk  ✓ DONE (Session 78)
+
+**Analysis** (confirmed by nbio source review):
+- Standard nbio operations (Accept, Recv, Send) run via `_exec(op)` from the loop thread — bypass the cross-thread queue.
+- Worker threads using `nbio.exec` (and `nbio.timeout` called from non-loop threads) go through the cross-thread MPSC queue — capacity 128.
+- If the queue fills, `nbio.exec` busy-waits (`wake_up` + `_yield` loop) — harmful for high-frequency sends.
+- `try_receive` drains the whole mailbox in one call, so multiple wake-up signals per drain are redundant.
+
+**Decision**: Implement "wake-up throttling" using an atomic flag.
+
+**Implementation** (`nbio_mbox.odin`):
+
+1. Add `wake_pending: bool` to `_NBio_State`:
+```odin
+_NBio_State :: struct {
+    loop:         ^nbio.Event_Loop,
+    keepalive:    ^nbio.Operation,
+    allocator:    mem.Allocator,
+    wake_pending: bool, // atomic — prevents queue overflow on high-frequency sends
+}
+```
+
+2. New `_noop_clear` callback (runs in event-loop thread, clears flag):
+```odin
+@(private)
+_noop_clear :: proc(_: ^nbio.Operation, state: ^_NBio_State) {
+    intrinsics.atomic_store(&state.wake_pending, false)
+}
+```
+
+3. Replace `_nbio_wake` body — CAS false→true; fire only if CAS succeeds:
+```odin
+@(private)
+_nbio_wake :: proc(ctx: rawptr) {
+    if ctx == nil { return }
+    state := (^_NBio_State)(ctx)
+    // atomic_compare_exchange_strong returns OLD value.
+    // If old == true: already pending — skip.
+    // If old == false: we set to true — fire timeout.
+    if intrinsics.atomic_compare_exchange_strong(&state.wake_pending, false, true) != false {
+        return
+    }
+    nbio.timeout_poly(0, state, _noop_clear, state.loop)
+}
+```
+
+4. Keepalive init unchanged: `nbio.timeout(time.Hour * 24, _noop, loop)`
+
+**Note**: `timeout_poly` passes `state` to `_noop_clear`. Size constraint: `size_of(^_NBio_State)` == 8 bytes — within `MAX_USER_ARGUMENTS`.
+
+### 10. MPSC Stall Recovery  ✓ DONE (Session 78)
+
+**Decision: no internal retry.**
+`try_receive` stays non-blocking — one `mpsc.pop` call, return immediately.
+Stall is a caller concern. Retry on the next event loop tick (the keepalive ensures the loop keeps ticking).
+Spinning inside `try_receive` would violate the non-blocking contract.
+
+**Done**: `try_receive` comment strengthened in `try_mbox/mbox.odin`.
+
+### 11. Close Semantics & Stall Window  ✓ DONE (Session 78)
+
+**Decision: no retry in close.**
+Precondition: "Call only after all senders have stopped (threads joined)."
+After a sender thread is joined, both the atomic exchange and the next-pointer write have completed — no open stall window.
+The existing drain loop (`for { pop; if nil { break } }`) is correct under this precondition.
+
+**Done**: `close` comment strengthened in `try_mbox/mbox.odin`.
 
 ---
 
@@ -429,6 +594,22 @@ To keep `queue_test.odin`, `wakeup_test.odin`, and `pool_test.odin` clean as "ru
 - **Idempotent Destroy**: Multiple threads calling `destroy` at the same time. Verify no crashes or double-frees.
 - **Allocator Integrity**: Use a custom tracking allocator to ensure the pool never falls back to `context.allocator` for internal `new`/`free` calls.
 
+### 4. Try_mbox Edge Cases (`try_mbox/edge_test.odin`)  ✓ DONE (Session 78)
+- `test_concurrent_producers`: 10 threads × 1,000 sends, single consumer drains all 10,000.
+- `test_close_during_send_race`: 5 threads send while main closes; no panic, counts valid.
+- Also added: `try_receive_all` proc + `test_try_receive_all_basic` in `mbox_test.odin`.
+
+### 5. Nbio_mbox Edge Cases  ✓ DONE (Session 78)
+`tests/loop_test.odin` (2 new):
+- `test_loop_invalid_loop` — nil loop → `(nil, .Invalid_Loop)`
+- `test_loop_high_freq_send` — 10,000 sends; all received via tick+try_receive.
+
+`tests/nbio_mbox_edge_test.odin` (NEW, 4 tests):
+- `test_nbio_throttle_efficiency` — 1,000 sends; tick count < 50 proves wake_pending works.
+- `test_nbio_burst_multiproducer` — 20 threads × 5,000 sends = 100,000 total; all received.
+- `test_nbio_pool_constancy` — 10 rounds × 1,000 sends; no memory growth between rounds.
+- `test_nbio_late_arrival` — send A, receive A, signal B, receive B; no message lost at flag-reset.
+
 ---
 
 ## Critical files
@@ -446,12 +627,19 @@ To keep `queue_test.odin`, `wakeup_test.odin`, and `pool_test.odin` clean as "ru
 | `wakeup/wakeup_test.odin` | 4 | NEW (unit tests) |
 | `pool/pool.odin` | 5 | Modify (add waker, empty_was_returned) |
 | `pool_tests/pool_test.odin` | 5 | Add WakeUper tests |
-| `mbox.odin` → `mbox/mbox.odin` | 6 | MOVE |
-| `loop_mbox.odin` → `loop_mbox/loop_mbox.odin` | 6 | MOVE |
-| `doc.odin` → `mbox/doc.odin` | 6 | MOVE |
-| `loop_mbox/doc.odin` | 6 | NEW |
-| `nbio_mbox/nbio_mbox.odin` | 6 | NEW |
-| `nbio_mbox/doc.odin` | 6 | NEW |
+| `poll_mbox/` (entire folder) | 6a | DELETE |
+| `try_mbox/mbox.odin` | 6a | NEW |
+| `try_mbox/doc.odin` | 6a | NEW |
+| `try_mbox/mbox_test.odin` | 6a | NEW (unit tests) |
+| `loop_mbox.odin` | 6b | DELETE |
+| `nbio_mbox.odin` | 6b | NEW (package mbox, factory only) |
+| `tests/loop_test.odin` | 6b,7 | UPDATE |
+| `examples/negotiation.odin` | 6b | UPDATE |
+| `nbio_mbox.odin` | 7 (§9) | UPDATE — wake_pending + _noop_clear |
+| `try_mbox/mbox.odin` | 7 (§10,§11) | UPDATE — comments + try_receive_all |
+| `try_mbox/mbox_test.odin` | 7 | UPDATE — test_try_receive_all_basic |
+| `try_mbox/edge_test.odin` | 7 | NEW — 2 edge tests |
+| `tests/nbio_mbox_edge_test.odin` | 7 | NEW — 4 edge tests |
 | `design/loop-mbox-enhancement.md` | all | NEW (add to .gitignore) |
 | `design/STATUS.md` | all | Update |
 | `last_plan.md` | all | Update |
@@ -472,15 +660,30 @@ odin test ./pool_tests/ -vet -strict-style -disallow-do -o:none -debug
 odin test ./mpsc/ -vet -strict-style -disallow-do -o:none -debug          (Stage 3+, unit)
 odin test ./wakeup/ -vet -strict-style -disallow-do -o:none -debug        (Stage 4+, unit)
 
-# Stage 6+ (packages moved):
-odin build ./mbox/ -build-mode:lib -vet -strict-style -o:none -debug
-odin build ./loop_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
-odin build ./nbio_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
-odin test ./mbox/ -vet -strict-style -disallow-do -o:none -debug          (unit)
-odin test ./loop_mbox/ -vet -strict-style -disallow-do -o:none -debug     (unit)
-odin test ./nbio_mbox/ -vet -strict-style -disallow-do -o:none -debug     (unit)
-odin test ./tests/ -vet -strict-style -disallow-do -o:none -debug         (functional)
-odin test ./pool_tests/ -vet -strict-style -disallow-do -o:none -debug    (functional)
+# Stage 6a (try_mbox/ added, root files untouched):
+odin build ./try_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
+odin test ./try_mbox/ -vet -strict-style -disallow-do -o:none -debug      (unit, 10 tests)
+
+# Stage 6b (loop_mbox.odin deleted, nbio_mbox.odin added, callers updated):
+odin build . -build-mode:lib -vet -strict-style -o:none -debug
+odin build ./pool/ -build-mode:lib -vet -strict-style -o:none -debug
+odin build ./mpsc/ -build-mode:lib -vet -strict-style -o:none -debug
+odin build ./wakeup/ -build-mode:lib -vet -strict-style -o:none -debug
+odin build ./examples/ -build-mode:lib -vet -strict-style -o:none -debug
+odin test ./mpsc/ -vet -strict-style -disallow-do -o:none -debug
+odin test ./wakeup/ -vet -strict-style -disallow-do -o:none -debug
+odin test ./pool_tests/ -vet -strict-style -disallow-do -o:none -debug
+odin test ./tests/ -vet -strict-style -disallow-do -o:none -debug
+
+# Stage 7 (strategic analysis + edge cases done — Session 78):
+odin build . -build-mode:lib -vet -strict-style -o:none -debug
+odin build ./try_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
+odin test ./try_mbox/ -vet -strict-style -disallow-do -o:none -debug    # 13 tests
+odin test ./tests/ -vet -strict-style -disallow-do -o:none -debug       # 37 tests
+odin test ./mpsc/ -vet -strict-style -disallow-do -o:none -debug
+odin test ./wakeup/ -vet -strict-style -disallow-do -o:none -debug
+odin test ./pool_tests/ -vet -strict-style -disallow-do -o:none -debug
+# Total: 105 tests — all green
 ```
 
 

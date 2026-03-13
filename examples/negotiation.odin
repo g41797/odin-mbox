@@ -1,6 +1,7 @@
 package examples
 
 import mbox ".."
+import try_mbox "../try_mbox"
 import list "core:container/intrusive/list"
 import "core:mem"
 import "core:nbio"
@@ -18,7 +19,7 @@ Msg :: struct {
 // _Worker holds pointers to both mailboxes and the result.
 @(private)
 _Worker :: struct {
-	loop_mb:  ^mbox.Loop_Mailbox(Msg),
+	loop_mb:  ^try_mbox.Mbox(Msg),
 	reply_mb: ^mbox.Mailbox(Msg),
 	ok:       bool,
 }
@@ -26,7 +27,7 @@ _Worker :: struct {
 // negotiation_example shows request-reply between a worker thread and an nbio event loop.
 //
 // Flow:
-//   worker  →  Loop_Mailbox  →  nbio loop
+//   worker  →  try_mbox  →  nbio loop
 //   nbio loop →  Mailbox  →  worker
 //
 // - Worker allocates a request on the heap, sends it to the loop.
@@ -43,21 +44,25 @@ negotiation_example :: proc() -> bool {
 	loop := nbio.current_thread_event_loop()
 
 	// loop_mb receives requests from the worker.
-	loop_mb: mbox.Loop_Mailbox(Msg)
-	if mbox.init_loop_mailbox(&loop_mb, loop) != .None {
+	loop_mb, init_err := mbox.init_nbio_mbox(Msg, loop)
+	if init_err != .None {
 		return false
+	}
+	defer {
+		try_mbox.close(loop_mb)
+		try_mbox.destroy(loop_mb)
 	}
 
 	// reply_mb sends replies back to the worker.
 	reply_mb: mbox.Mailbox(Msg)
 
-	w := _Worker{loop_mb = &loop_mb, reply_mb = &reply_mb}
+	w := _Worker{loop_mb = loop_mb, reply_mb = &reply_mb}
 
 	// Worker: allocates request, sends to loop, waits for reply, frees reply.
 	t := thread.create_and_start_with_poly_data(&w, proc(w: ^_Worker) {
 		req := new(Msg)
 		req.data = 10
-		mbox.send_to_loop(w.loop_mb, req)
+		try_mbox.send(w.loop_mb, req)
 
 		// Worker allocated req; loop will send it back as reply.
 		reply, recv_err := mbox.wait_receive(w.reply_mb)
@@ -73,7 +78,7 @@ negotiation_example :: proc() -> bool {
 		if tick_err != nil {
 			break
 		}
-		msg, ok := mbox.try_receive_loop(&loop_mb)
+		msg, ok := try_mbox.try_receive(loop_mb)
 		if ok {
 			// Reuse the received message as the reply.
 			// No extra allocation needed. Ownership stays with the worker.

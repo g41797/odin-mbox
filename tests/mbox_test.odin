@@ -40,14 +40,15 @@ _Receiver_Ctx :: struct {
 @(test)
 test_send_and_receive :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	m := Msg{data = 42}
+	m := new(Msg); m.data = 42
 
-	ok := mbox.send(&mb, &m)
+	ok := mbox.send(&mb, m)
 	testing.expect(t, ok, "send should return true")
 
 	got, err := mbox.wait_receive(&mb, 0)
 	testing.expect(t, err == .None, "wait_receive should return .None")
 	testing.expect(t, got != nil && got.data == 42, "wait_receive wrong data")
+	if got != nil {free(got)}
 }
 
 @(test)
@@ -75,11 +76,11 @@ test_zero_timeout :: proc(t: ^testing.T) {
 @(test)
 test_close_blocks_send :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	m := Msg{data = 1}
+	m := new(Msg); m.data = 1; defer free(m)
 
 	_, _ = mbox.close(&mb)
 
-	ok := mbox.send(&mb, &m)
+	ok := mbox.send(&mb, m)
 	testing.expect(t, !ok, "send to closed mailbox should return false")
 }
 
@@ -106,17 +107,18 @@ test_close_wakes_waiter :: proc(t: ^testing.T) {
 @(test)
 test_close_returns_remaining :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	a := Msg{data = 10}
-	b := Msg{data = 20}
+	a := new(Msg); a.data = 10
+	b := new(Msg); b.data = 20
 
-	mbox.send(&mb, &a)
-	mbox.send(&mb, &b)
+	mbox.send(&mb, a)
+	mbox.send(&mb, b)
 
 	remaining, was_open := mbox.close(&mb)
 	testing.expect(t, was_open, "first close should return was_open=true")
 
 	count := 0
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		free((^Msg)(node))
 		count += 1
 	}
 	testing.expect(t, count == 2, "close should return 2 remaining messages")
@@ -178,28 +180,29 @@ test_interrupt_on_closed :: proc(t: ^testing.T) {
 @(test)
 test_reuse_via_zero :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	m := Msg{data = 7}
+	m := new(Msg); m.data = 7
 
 	_, _ = mbox.close(&mb)
 	mb = {} // reinitialize — safe after no waiters
 
-	ok := mbox.send(&mb, &m)
+	ok := mbox.send(&mb, m)
 	testing.expect(t, ok, "send after reinitialization should succeed")
 
 	got, err2 := mbox.wait_receive(&mb, 0)
 	testing.expect(t, err2 == .None && got != nil && got.data == 7, "wait_receive should return message")
+	if got != nil {free(got)}
 }
 
 @(test)
 test_fifo_order :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(Msg)
-	a := Msg{data = 1}
-	b := Msg{data = 2}
-	c := Msg{data = 3}
+	a := new(Msg); a.data = 1
+	b := new(Msg); b.data = 2
+	c := new(Msg); c.data = 3
 
-	mbox.send(&mb, &a)
-	mbox.send(&mb, &b)
-	mbox.send(&mb, &c)
+	mbox.send(&mb, a)
+	mbox.send(&mb, b)
+	mbox.send(&mb, c)
 
 	got1, _ := mbox.wait_receive(&mb, 0)
 	got2, _ := mbox.wait_receive(&mb, 0)
@@ -208,6 +211,9 @@ test_fifo_order :: proc(t: ^testing.T) {
 	testing.expect(t, got1 != nil && got1.data == 1, "first message should be 1")
 	testing.expect(t, got2 != nil && got2.data == 2, "second message should be 2")
 	testing.expect(t, got3 != nil && got3.data == 3, "third message should be 3")
+	if got1 != nil {free(got1)}
+	if got2 != nil {free(got2)}
+	if got3 != nil {free(got3)}
 }
 
 @(test)
@@ -290,8 +296,9 @@ test_many_waiters_one_message :: proc(t: ^testing.T) {
 	}
 
 	time.sleep(20 * time.Millisecond)
-	m := Msg{data = 42}
-	mbox.send(&mb, &m)
+	msgs := make([]Msg, 1); defer delete(msgs)
+	msgs[0].data = 42
+	mbox.send(&mb, &msgs[0])
 
 	sync.sema_wait(&done) // wait for the 1 thread that got the message
 	mbox.close(&mb)       // wake the remaining 4

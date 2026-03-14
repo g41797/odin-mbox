@@ -44,12 +44,12 @@ test_loop_basic :: proc(t: ^testing.T) {
 		try_mbox.destroy(m)
 	}
 
-	a := Msg{data = 1}
-	b := Msg{data = 2}
-	c := Msg{data = 3}
-	try_mbox.send(m, &a)
-	try_mbox.send(m, &b)
-	try_mbox.send(m, &c)
+	a := new(Msg); a.data = 1
+	b := new(Msg); b.data = 2
+	c := new(Msg); c.data = 3
+	try_mbox.send(m, a)
+	try_mbox.send(m, b)
+	try_mbox.send(m, c)
 
 	testing.expect(t, try_mbox.length(m) == 3, "length should be 3 after 3 sends")
 
@@ -62,6 +62,9 @@ test_loop_basic :: proc(t: ^testing.T) {
 	testing.expect(t, ok2 && msg2 != nil && msg2.data == 2, "second message should be 2")
 	testing.expect(t, ok3 && msg3 != nil && msg3.data == 3, "third message should be 3")
 	testing.expect(t, !ok4 && msg4 == nil, "fourth receive should return (nil, false)")
+	if msg1 != nil {free(msg1)}
+	if msg2 != nil {free(msg2)}
+	if msg3 != nil {free(msg3)}
 }
 
 // test_loop_close_and_drain: send 2 messages, close, check remaining count and that send returns false.
@@ -82,21 +85,23 @@ test_loop_close_and_drain :: proc(t: ^testing.T) {
 		try_mbox.destroy(m)
 	}
 
-	a := Msg{data = 10}
-	b := Msg{data = 20}
-	try_mbox.send(m, &a)
-	try_mbox.send(m, &b)
+	a := new(Msg); a.data = 10
+	b := new(Msg); b.data = 20
+	try_mbox.send(m, a)
+	try_mbox.send(m, b)
 
 	remaining, was_open := try_mbox.close(m)
 	testing.expect(t, was_open, "first close should return was_open=true")
 
 	count := 0
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		free((^Msg)(node))
 		count += 1
 	}
 	testing.expect(t, count == 2, "close should return 2 remaining messages")
 
-	ok := try_mbox.send(m, &a)
+	extra := new(Msg); extra.data = 99; defer free(extra)
+	ok := try_mbox.send(m, extra)
 	testing.expect(t, !ok, "send after close should return false")
 }
 
@@ -118,8 +123,8 @@ test_loop_wake_on_send :: proc(t: ^testing.T) {
 		try_mbox.destroy(m)
 	}
 
-	msg := Msg{data = 77}
-	ctx := _Loop_Wake_Ctx{m = m, msg = &msg}
+	msg := new(Msg); msg.data = 77
+	ctx := _Loop_Wake_Ctx{m = m, msg = msg}
 	th := thread.create_and_start_with_data(&ctx, proc(data: rawptr) {
 		c := (^_Loop_Wake_Ctx)(data)
 		time.sleep(10 * time.Millisecond) // Give loop time to enter tick()
@@ -147,6 +152,7 @@ test_loop_wake_on_send :: proc(t: ^testing.T) {
 	thread.destroy(th)
 
 	testing.expect(t, got != nil && got.data == 77, "should receive the message sent by thread")
+	if got != nil {free(got)}
 }
 
 // test_loop_invalid_loop: init_nbio_mbox with nil loop returns (nil, .Invalid_Loop).

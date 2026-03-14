@@ -120,5 +120,8 @@ length :: proc(m: ^Mbox($T)) -> int where intrinsics.type_has_field(T, "node"),
 // Call after close and after draining all remaining messages.
 destroy :: proc(m: ^Mbox($T)) where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") == list.Node {
+	when ODIN_DEBUG {
+		assert(intrinsics.atomic_load(&m.closed), "destroy called without close")
+	}
 	free(m, m.allocator)
 }

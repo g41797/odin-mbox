@@ -125,5 +125,9 @@ init_nbio_mbox :: proc(
 		_nbio_close(rawptr(state))
 		return nil, .Keepalive_Failed
 	}
+	// Flush pending kqueue changes (registers EVFILT_USER in the kernel on macOS/kqueue).
+	// On a non-event-loop thread this is a no-op (refs == 0). On the event-loop thread it
+	// makes _wake_up safe to call as soon as the first sender thread spawns.
+	nbio.tick(0)
 	return m, .None
 }

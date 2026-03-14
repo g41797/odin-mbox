@@ -33,7 +33,7 @@ _Send_Ctx :: struct {
 @(test)
 test_concurrent_producers :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
+	defer {_, _ = close(m); destroy(m)}
 
 	// Allocate message slabs — one per thread so each thread owns its messages.
 	slabs := make([][]_TM, N_EP_THREADS)

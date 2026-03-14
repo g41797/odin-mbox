@@ -266,11 +266,11 @@ test_nbio_late_arrival :: proc(t: ^testing.T) {
 		try_mbox.destroy(m)
 	}
 
-	a := Msg{data = 1}
-	b := Msg{data = 2}
+	a := new(Msg); a.data = 1
+	b := new(Msg); b.data = 2
 
 	sema: sync.Sema
-	ctx := _LA_Ctx{m = m, a = &a, b = &b, sema = &sema}
+	ctx := _LA_Ctx{m = m, a = a, b = b, sema = &sema}
 
 	th := thread.create_and_start_with_data(&ctx, proc(data: rawptr) {
 		c := (^_LA_Ctx)(data)
@@ -291,6 +291,7 @@ test_nbio_late_arrival :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, got_a != nil && got_a.data == 1, "should receive message A")
+	if got_a != nil {free(got_a)}
 
 	// Signal worker to send B.
 	sync.sema_post(&sema)
@@ -306,6 +307,7 @@ test_nbio_late_arrival :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, got_b != nil && got_b.data == 2, "should receive message B after flag reset")
+	if got_b != nil {free(got_b)}
 
 	thread.join(th)
 	thread.destroy(th)

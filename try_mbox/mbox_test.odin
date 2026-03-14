@@ -35,25 +35,27 @@ _wc_close :: proc(ctx: rawptr) {
 test_init_destroy :: proc(t: ^testing.T) {
 	m := init(_TM)
 	testing.expect(t, m != nil, "init should return non-nil")
+	_, _ = close(m)
 	destroy(m)
 }
 
 @(test)
 test_send_try_receive_basic :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
-	msg := _TM{data = 42}
-	ok := send(m, &msg)
+	defer {_, _ = close(m); destroy(m)}
+	msg := new(_TM); msg.data = 42
+	ok := send(m, msg)
 	testing.expect(t, ok, "send should return true")
 	got, ok2 := try_receive(m)
 	testing.expect(t, ok2, "try_receive should return true")
 	testing.expect(t, got != nil && got.data == 42, "received message should have data == 42")
+	if got != nil {free(got)}
 }
 
 @(test)
 test_try_receive_empty :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
+	defer {_, _ = close(m); destroy(m)}
 	got, ok := try_receive(m)
 	testing.expect(t, !ok, "try_receive on empty should return false")
 	testing.expect(t, got == nil, "try_receive on empty should return nil")
@@ -64,8 +66,8 @@ test_send_closed :: proc(t: ^testing.T) {
 	m := init(_TM)
 	defer destroy(m)
 	_, _ = close(m)
-	msg := _TM{data = 1}
-	ok := send(m, &msg)
+	msg := new(_TM); msg.data = 1; defer free(msg)
+	ok := send(m, msg)
 	testing.expect(t, !ok, "send after close should return false")
 }
 
@@ -73,20 +75,17 @@ test_send_closed :: proc(t: ^testing.T) {
 test_close_returns_remaining :: proc(t: ^testing.T) {
 	m := init(_TM)
 	defer destroy(m)
-	a := _TM{data = 1}
-	b := _TM{data = 2}
-	c := _TM{data = 3}
-	send(m, &a)
-	send(m, &b)
-	send(m, &c)
+	a := new(_TM); a.data = 1
+	b := new(_TM); b.data = 2
+	c := new(_TM); c.data = 3
+	send(m, a)
+	send(m, b)
+	send(m, c)
 	remaining, was_open := close(m)
 	testing.expect(t, was_open, "close should return was_open == true")
 	count := 0
-	for {
-		raw := list.pop_front(&remaining)
-		if raw == nil {
-			break
-		}
+	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		free((^_TM)(node))
 		count += 1
 	}
 	testing.expect(t, count == 3, "close should drain 3 remaining messages")
@@ -95,7 +94,7 @@ test_close_returns_remaining :: proc(t: ^testing.T) {
 @(test)
 test_close_idempotent :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
+	defer destroy(m) // m.closed == true after first close below
 	_, first := close(m)
 	_, second := close(m)
 	testing.expect(t, first, "first close should return true")
@@ -105,15 +104,16 @@ test_close_idempotent :: proc(t: ^testing.T) {
 @(test)
 test_length :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
+	defer {_, _ = close(m); destroy(m)}
 	testing.expect(t, length(m) == 0, "length should be 0 initially")
-	a := _TM{data = 1}
-	b := _TM{data = 2}
-	send(m, &a)
-	send(m, &b)
+	a := new(_TM); a.data = 1
+	b := new(_TM); b.data = 2
+	send(m, a)
+	send(m, b)
 	testing.expect(t, length(m) == 2, "length should be 2 after 2 sends")
-	try_receive(m)
+	got1, _ := try_receive(m); if got1 != nil {free(got1)}
 	testing.expect(t, length(m) == 1, "length should be 1 after one try_receive")
+	got2, _ := try_receive(m); if got2 != nil {free(got2)}
 }
 
 @(test)
@@ -121,15 +121,18 @@ test_waker_called_on_send :: proc(t: ^testing.T) {
 	wc: _WC
 	waker := wakeup.WakeUper{ctx = rawptr(&wc), wake = _wc_wake}
 	m := init(_TM, waker)
-	defer destroy(m)
-	a := _TM{data = 1}
-	b := _TM{data = 2}
-	c := _TM{data = 3}
-	send(m, &a)
-	send(m, &b)
-	send(m, &c)
+	defer {_, _ = close(m); destroy(m)}
+	a := new(_TM); a.data = 1
+	b := new(_TM); b.data = 2
+	c := new(_TM); c.data = 3
+	send(m, a)
+	send(m, b)
+	send(m, c)
 	// wake should be called once per send; 3 sends → count == 3
 	testing.expect(t, wc.wake_count == 3, "wake should be called once per send; 3 sends → count == 3")
+	ga, _ := try_receive(m); if ga != nil {free(ga)}
+	gb, _ := try_receive(m); if gb != nil {free(gb)}
+	gc, _ := try_receive(m); if gc != nil {free(gc)}
 }
 
 @(test)
@@ -137,7 +140,7 @@ test_waker_close_on_close :: proc(t: ^testing.T) {
 	wc: _WC
 	waker := wakeup.WakeUper{ctx = rawptr(&wc), close = _wc_close}
 	m := init(_TM, waker)
-	defer destroy(m)
+	defer destroy(m) // m.closed == true after close() below
 	_, _ = close(m)
 	testing.expect(t, wc.close_called, "waker.close should be called on mailbox close")
 }
@@ -145,29 +148,29 @@ test_waker_close_on_close :: proc(t: ^testing.T) {
 @(test)
 test_no_waker :: proc(t: ^testing.T) {
 	m := init(_TM) // zero WakeUper
-	defer destroy(m)
-	msg := _TM{data = 99}
-	ok := send(m, &msg)
+	defer {_, _ = close(m); destroy(m)}
+	msg := new(_TM); msg.data = 99
+	ok := send(m, msg)
 	testing.expect(t, ok, "send without waker should return true")
 	got, ok2 := try_receive(m)
 	testing.expect(t, ok2 && got != nil && got.data == 99, "try_receive without waker should work")
+	if got != nil {free(got)}
 }
 
 @(test)
 test_try_receive_all_basic :: proc(t: ^testing.T) {
 	m := init(_TM)
-	defer destroy(m)
-	a := _TM{data = 1}
-	b := _TM{data = 2}
-	c := _TM{data = 3}
-	send(m, &a)
-	send(m, &b)
-	send(m, &c)
+	defer {_, _ = close(m); destroy(m)}
+	a := new(_TM); a.data = 1
+	b := new(_TM); b.data = 2
+	c := new(_TM); c.data = 3
+	send(m, a)
+	send(m, b)
+	send(m, c)
 	result := try_receive_all(m)
 	count := 0
-	for {
-		node := list.pop_front(&result)
-		if node == nil {break}
+	for node := list.pop_front(&result); node != nil; node = list.pop_front(&result) {
+		free((^_TM)(node))
 		count += 1
 	}
 	testing.expect(t, count == 3, "try_receive_all should return all 3 messages")

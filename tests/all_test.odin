@@ -14,8 +14,14 @@ test_negotiation :: proc(t: ^testing.T) {
 		examples.negotiation_example(.Timeout),
 		"negotiation_example .Timeout failed",
 	)
-	testing.expect(t, examples.negotiation_example(.UDP), "negotiation_example .UDP failed")
-}
+	testing.expect(t, examples.negotiation_example(), "negotiation_example failed")
+	}
+
+	@(test)
+	test_foreign_dispose :: proc(t: ^testing.T) {
+	testing.expect(t, examples.foreign_dispose_example(), "foreign_dispose_example failed")
+	}
+
 
 // -vet: keep nbio_mbox import used.
 @(private)

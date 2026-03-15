@@ -56,10 +56,6 @@ _Echo_Client :: struct {
 }
 
 // echo_server_example shows raw mpsc.Queue + sync.Sema — building blocks of loop_mbox.
-//
-// N_CLIENTS client threads share a pool with M_MSGS tokens (M_MSGS < N_CLIENTS).
-// This forces backpressure: clients block in pool.get until the server echoes a message back.
-// The server runs a manual loop — the same pattern that loop_mbox uses internally.
 echo_server_example :: proc() -> bool {
 	N_CLIENTS :: 8
 	M_MSGS    :: 4 // fewer tokens than clients — forces backpressure
@@ -86,7 +82,7 @@ echo_server_example :: proc() -> bool {
 					if node == nil {break}
 					msg := (^Echo_Msg)(node)
 					reply_to := msg.reply_to
-					reply: Maybe(^Echo_Msg) = msg
+					reply: Maybe(^Echo_Msg) = msg // [itc: maybe-container]
 					mbox.send(reply_to, &reply)
 					processed += 1
 				}
@@ -123,8 +119,12 @@ echo_server_example :: proc() -> bool {
 				m: Maybe(^Echo_Msg) = msg // [itc: maybe-container]
 				if !mpsc.push(&c.server.q, &m) {
 					// push failed — return token to pool
-					m2: Maybe(^Echo_Msg) = msg
-					_, _ = pool_pkg.put(&c.server.pool, &m2)
+					ptr, accepted := pool_pkg.put(&c.server.pool, &m)
+					if !accepted && ptr != nil {
+						// _echo_msg_dispose not defined, using inline free for this example
+						// but in real system would follow dispose-contract
+						free(ptr, ptr.allocator)
+					}
 					return
 				}
 				sync.sema_post(&c.server.sema)
@@ -137,8 +137,11 @@ echo_server_example :: proc() -> bool {
 				c.ok = reply.data == c.my_id
 
 				// Return the token to the pool.
-				reply_opt: Maybe(^Echo_Msg) = reply
-				_, _ = pool_pkg.put(&c.server.pool, &reply_opt) // [itc: defer-put]
+				reply_opt: Maybe(^Echo_Msg) = reply // [itc: maybe-container]
+				ptr, accepted := pool_pkg.put(&c.server.pool, &reply_opt)
+				if !accepted && ptr != nil {
+					free(ptr, ptr.allocator) // [itc: foreign-dispose]
+				}
 			},
 		)
 	}

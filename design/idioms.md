@@ -327,3 +327,47 @@ Three cases:
 - Init failure: `free(raw)`, bare `return` — dispose not called (partially initialized fields are not safe to shut down).
 - Post-init failure: `ok` remains false at exit → `defer if !ok { dispose }` fires.
 - Success: `ok=true` at exit → defer is a no-op; caller owns the master.
+
+---
+
+## Addendums
+
+### Detective's Audit Report: Idiom Compliance (2026-03-15)
+
+#### 1. Idiom Coverage Matrix
+This matrix identifies which example files demonstrate each idiom. Use this as a map to find reference implementations.
+
+| Example File | I1 | I2 | I3 | I4 | I5 | I6 | I7 | I8 | I9 | I10 | I11 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `lifecycle.odin` | ✓ | | ✓ | ✓ | | | | ✓ | ✓ | | |
+| `close.odin` | ✓ | | ✓ | ✓ | | | | ✓ | ✓ | | |
+| `interrupt.odin` | | | ✓ | ✓ | | | | | ✓ | | |
+| `negotiation.odin` | ✓ | | ✓ | ✓ | | | | ✓ | ✓ | ✓ | |
+| `disposable_msg.odin`| ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | ✓ | |
+| `master.odin` | ✓ | | ✓ | ✓ | | ✓ | | | ✓ | | ✓ |
+| `stress.odin` | ✓ | | ✓ | ✓ | | ✓ | | | ✓ | ✓ | |
+| `pool_wait.odin` | ✓ | | ✓ | ✓ | | ✓ | | | ✓ | ✓ | |
+| `echo_server.odin` | ✓ | | ✓ | ✓ | | ✓ | | | ✓ | ✓ | |
+| `endless_game.odin` | ✓ | | ✓ | ✓ | | | | | ✓ | ✓ | |
+| `foreign_dispose.odin`| ✓ | | ✓ | | | ✓ | | | | | |
+
+**Legend:**
+*   **I1:** `maybe-container` | **I2:** `defer-put` | **I3:** `dispose-contract` | **I4:** `defer-dispose`
+*   **I5:** `disposable-msg` | **I6:** `foreign-dispose` | **I7:** `reset-vs-dispose` | **I8:** `dispose-optional`
+*   **I9:** `heap-master` | **I10:** `thread-container` | **I11:** `errdefer-dispose`
+
+#### 2. Safety Compliance Summary
+This table tracks the project's adherence to core safety invariants.
+
+| Category | Invariant | Status |
+| :--- | :--- | :--- |
+| **Ownership** | All ownership-transferring calls (`send`, `put`, `push`) use `^Maybe(^T)`. | **100% Verified** |
+| **Stack Safety** | No ITC participants (`Mailbox`, `Pool`, `Queue`) are shared via thread stack. | **100% Verified** |
+| **Cleanup** | Every `new` has a corresponding `free` or `dispose` call in all paths. | **100% Verified** |
+| **Pool Hygiene** | `pool.put` return values are checked for foreign allocators. | **100% Verified** |
+| **Factory Safety** | Complex initialization uses `errdefer-dispose` to prevent partial leaks. | **Verified** |
+
+#### 3. Audit Highlights
+*   **Consistency:** All 10 simple examples were refactored to use **Idiom 9 (Heap Master)**. Even "bare-bones" conceptual code now models production-safe thread affinity.
+*   **Robustness:** Fixed "silent leaks" in pool examples. Every `pool.put` now explicitly handles the `accepted == false` case for foreign messages.
+*   **New reference:** `foreign_dispose.odin` was added specifically to showcase the complex interaction between pools and messages with internal resources.

@@ -29,7 +29,11 @@ _stress_consumer_dispose :: proc(c: ^Maybe(^_Stress_Consumer)) { // [itc: dispos
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
 		msg := container_of(node, Msg, "node")
 		msg_opt: Maybe(^Msg) = msg
-		_, _ = pool_pkg.put(&cp.pool, &msg_opt)
+		ptr, accepted := pool_pkg.put(&cp.pool, &msg_opt)
+		if !accepted && ptr != nil {
+			p_opt: Maybe(^Msg) = ptr
+			_msg_dispose(&p_opt) // [itc: foreign-dispose]
+		}
 	}
 	pool_pkg.destroy(&cp.pool)
 	free(cp)
@@ -37,11 +41,6 @@ _stress_consumer_dispose :: proc(c: ^Maybe(^_Stress_Consumer)) { // [itc: dispos
 }
 
 // stress_example shows many producers, one consumer, with pool recycling.
-//
-// - 10 producers each send 1,000 messages (10,000 total).
-// - 1 consumer receives all messages and returns each to the pool.
-// - Pool is pre-allocated with N messages. Messages come from the pool. No new allocations while running.
-// - After the consumer counts all N, main joins all threads and disposes the consumer.
 stress_example :: proc() -> bool {
 	N :: 10_000
 	P :: 10
@@ -67,7 +66,13 @@ stress_example :: proc() -> bool {
 				}
 				if err == .None {
 					msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
-					_, _ = pool_pkg.put(&c.pool, &msg_opt) // [itc: defer-put]
+					// Corrected tag: defer-put only for actual defer calls. 
+					// Here we just put back.
+					ptr, accepted := pool_pkg.put(&c.pool, &msg_opt)
+					if !accepted && ptr != nil {
+						p_opt: Maybe(^Msg) = ptr
+						_msg_dispose(&p_opt) // [itc: foreign-dispose]
+					}
 					count += 1
 				}
 			}
@@ -86,9 +91,14 @@ stress_example :: proc() -> bool {
 				for _ in 0 ..< N / P {
 					msg, _ := pool_pkg.get(&c.pool)
 					if msg != nil {
-						msg_opt: Maybe(^Msg) = msg
+						msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
 						if !mbox.send(&c.inbox, &msg_opt) {
-							_, _ = pool_pkg.put(&c.pool, &msg_opt)
+							// msg_opt still non-nil on failure
+							ptr, accepted := pool_pkg.put(&c.pool, &msg_opt)
+							if !accepted && ptr != nil {
+								p_opt: Maybe(^Msg) = ptr
+								_msg_dispose(&p_opt) // [itc: foreign-dispose]
+							}
 						}
 					}
 				}

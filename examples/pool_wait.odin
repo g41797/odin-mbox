@@ -34,7 +34,11 @@ _pool_wait_collector_dispose :: proc(c: ^Maybe(^_Pool_Wait_Collector)) { // [itc
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
 		msg := container_of(node, Msg, "node")
 		msg_opt: Maybe(^Msg) = msg
-		_, _ = pool_pkg.put(&cp.pool, &msg_opt)
+		ptr, accepted := pool_pkg.put(&cp.pool, &msg_opt)
+		if !accepted && ptr != nil {
+			p_opt: Maybe(^Msg) = ptr
+			_msg_dispose(&p_opt) // [itc: foreign-dispose]
+		}
 	}
 	pool_pkg.destroy(&cp.pool)
 	free(cp)
@@ -66,7 +70,11 @@ pool_wait_example :: proc() -> bool {
 				}
 				if err == .None {
 					msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
-					_, _ = pool_pkg.put(&c.pool, &msg_opt) // [itc: defer-put]
+					ptr, accepted := pool_pkg.put(&c.pool, &msg_opt)
+					if !accepted && ptr != nil {
+						p_opt: Maybe(^Msg) = ptr
+						_msg_dispose(&p_opt) // [itc: foreign-dispose]
+					}
 					count += 1
 				}
 			}
@@ -88,9 +96,13 @@ pool_wait_example :: proc() -> bool {
 					if status == .Closed {
 						break
 					}
-					msg_opt: Maybe(^Msg) = msg
+					msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
 					if !mbox.send(&c.inbox, &msg_opt) {
-						_, _ = pool_pkg.put(&c.pool, &msg_opt)
+						ptr, accepted := pool_pkg.put(&c.pool, &msg_opt)
+						if !accepted && ptr != nil {
+							p_opt: Maybe(^Msg) = ptr
+							_msg_dispose(&p_opt) // [itc: foreign-dispose]
+						}
 					}
 				}
 			},

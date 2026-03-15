@@ -20,11 +20,26 @@ _Worker :: struct {
 _worker_dispose :: proc(w: ^Maybe(^_Worker)) { // [itc: dispose-contract]
 	wp, ok := w.?
 	if !ok || wp == nil {return}
+	
+	// Dispose loop_mb
+	if wp.loop_mb != nil {
+		remaining_loop, _ := loop_mbox.close(wp.loop_mb)
+		for node := list.pop_front(&remaining_loop); node != nil; node = list.pop_front(&remaining_loop) {
+			msg := (^Msg)(node)
+			msg_opt: Maybe(^Msg) = msg
+			_msg_dispose(&msg_opt) // [itc: dispose-optional]
+		}
+		loop_mbox.destroy(wp.loop_mb)
+	}
+
+	// Dispose reply_mb
 	remaining, _ := mbox.close(&wp.reply_mb)
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
 		msg := (^Msg)(node)
-		free(msg) // reply_mb holds heap ^Msg, not pool messages
+		msg_opt: Maybe(^Msg) = msg
+		_msg_dispose(&msg_opt) // [itc: dispose-optional]
 	}
+
 	free(wp)
 	w^ = nil
 }
@@ -48,27 +63,24 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 
 	loop := nbio.current_thread_event_loop()
 
+	w := new(_Worker) // [itc: heap-master]
+	w_opt: Maybe(^_Worker) = w
+	defer _worker_dispose(&w_opt) // [itc: defer-dispose]
+
 	// loop_mb receives requests from the worker.
-	loop_mb, init_err := nbio_mbox.init_nbio_mbox(Msg, loop, kind)
+	init_err: nbio_mbox.Nbio_Mailbox_Error
+	w.loop_mb, init_err = nbio_mbox.init_nbio_mbox(Msg, loop, kind)
 	if init_err != .None {
 		return false
 	}
-	defer {
-		loop_mbox.close(loop_mb)
-		loop_mbox.destroy(loop_mb)
-	}
-
-	w := new(_Worker) // [itc: heap-master]
-	w.loop_mb = loop_mb
-	w_opt: Maybe(^_Worker) = w
-	defer _worker_dispose(&w_opt) // [itc: defer-dispose]
 
 	// Worker: allocates request, sends to loop, waits for reply, frees reply.
 	t := thread.create_and_start_with_poly_data(w, proc(w: ^_Worker) { // [itc: thread-container]
 		req: Maybe(^Msg) = new(Msg) // [itc: maybe-container]
 		req.?.data = 10
+		req.?.allocator = context.allocator
 		if !loop_mbox.send(w.loop_mb, &req) {
-			if mp, ok := req.?; ok {free(mp)}
+			_msg_dispose(&req)
 			return
 		}
 
@@ -76,7 +88,8 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 		reply, recv_err := mbox.wait_receive(&w.reply_mb)
 		w.ok = recv_err == .None && reply != nil && reply.data == 11
 		if reply != nil {
-			free(reply) // worker frees what it allocated
+			reply_opt: Maybe(^Msg) = reply
+			_msg_dispose(&reply_opt) // [itc: dispose-optional]
 		}
 	})
 
@@ -86,7 +99,7 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 		if tick_err != nil {
 			break
 		}
-		nb := loop_mbox.try_receive_batch(loop_mb)
+		nb := loop_mbox.try_receive_batch(w.loop_mb)
 		node := list.pop_front(&nb)
 		if node != nil {
 			// Reuse the received message as the reply.
@@ -95,7 +108,7 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 			msg: Maybe(^Msg) = msg_inner
 			msg.?.data += 1
 			if !mbox.send(&w.reply_mb, &msg) {
-				if mp, ok := msg.?; ok {free(mp)}
+				_msg_dispose(&msg)
 			}
 			break
 		}

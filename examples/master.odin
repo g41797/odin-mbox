@@ -11,10 +11,26 @@ Master :: struct {
 	inbox: mbox.Mailbox(Msg),
 }
 
-// master_init sets up the pool with 8 pre-allocated messages and a cap of 64.
-master_init :: proc(m: ^Master) -> bool {
-	ok, _ := pool_pkg.init(&m.pool, initial_msgs = 8, max_msgs = 64, reset = nil)
-	return ok
+// master_init is now a factory proc that demonstrates Idiom 11: errdefer-dispose.
+// [itc: errdefer-dispose]
+create_master :: proc(initial_msgs: int, max_msgs: int) -> (m: ^Master, ok: bool) {
+	raw := new(Master) // [itc: heap-master]
+	// If new fails, we return (nil, false) — ok is false (zero value).
+	if raw == nil { return }
+
+	m_opt: Maybe(^Master) = raw
+	// named return 'ok' is checked at exit time.
+	// if post-init setup fails, dispose cleans up the partially-init master.
+	defer if !ok { master_dispose(&m_opt) }
+
+	init_ok, _ := pool_pkg.init(&raw.pool, initial_msgs = initial_msgs, max_msgs = max_msgs, reset = nil)
+	if !init_ok { return }
+
+	// ... potential further setup ...
+
+	m = raw
+	ok = true
+	return
 }
 
 // master_shutdown closes the inbox, returns undelivered messages to the pool, then destroys the pool.
@@ -27,7 +43,11 @@ master_shutdown :: proc(m: ^Master) {
 	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
 		msg := container_of(node, Msg, "node")
 		msg_opt: Maybe(^Msg) = msg
-		_, _ = pool_pkg.put(&m.pool, &msg_opt) // back to pool, not freed
+		ptr, accepted := pool_pkg.put(&m.pool, &msg_opt) // back to pool, not freed
+		if !accepted && ptr != nil {
+			p_opt: Maybe(^Msg) = ptr
+			_msg_dispose(&p_opt) // [itc: foreign-dispose]
+		}
 	}
 	pool_pkg.destroy(&m.pool)
 }
@@ -43,16 +63,9 @@ master_dispose :: proc(m: ^Maybe(^Master)) { // [itc: dispose-contract]
 }
 
 // master_example shows pool + mailbox owned by one heap-allocated struct.
-//
-// Flow:
-// - heap-allocate Master.
-// - init: pool pre-allocated, ready to use.
-// - get a message from pool, send to inbox.
-// - dispose: inbox closed, message returned to pool, pool destroyed, Master freed.
 master_example :: proc() -> bool {
-	m := new(Master) // [itc: heap-master]
-	if !master_init(m) {
-		free(m)
+	m, ok := create_master(8, 64)
+	if !ok {
 		return false
 	}
 	m_opt: Maybe(^Master) = m
@@ -64,11 +77,14 @@ master_example :: proc() -> bool {
 	}
 	msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
 	msg_opt.?.data = 42
-	ok := mbox.send(&m.inbox, &msg_opt)
-	if !ok {
+	if !mbox.send(&m.inbox, &msg_opt) {
 		// send failed — return message to pool before dispose
 		// msg_opt is still non-nil (send failed, caller retains ownership)
-		_, _ = pool_pkg.put(&m.pool, &msg_opt)
+		ptr, accepted := pool_pkg.put(&m.pool, &msg_opt)
+		if !accepted && ptr != nil {
+			p_opt: Maybe(^Msg) = ptr
+			_msg_dispose(&p_opt) // [itc: foreign-dispose]
+		}
 		return false
 	}
 

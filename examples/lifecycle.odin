@@ -3,47 +3,70 @@ package examples
 import mbox "../mbox"
 import list "core:container/intrusive/list"
 
+@(private)
+_Lifecycle_Master :: struct {
+	mb: mbox.Mailbox(Msg),
+}
+
+@(private)
+_lifecycle_dispose :: proc(m: ^Maybe(^_Lifecycle_Master)) { // [itc: dispose-contract]
+	mp, ok := m.?
+	if !ok || mp == nil { return }
+	
+	// Final drain: after close, all returned messages need dispose.
+	remaining, _ := mbox.close(&mp.mb)
+	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		msg := container_of(node, Msg, "node")
+		msg_opt: Maybe(^Msg) = msg
+		_msg_dispose(&msg_opt) // [itc: dispose-optional]
+	}
+	free(mp)
+	m^ = nil
+}
+
+// Internal helper for simple Msg cleanup that follows the contract.
+@(private)
+_msg_dispose :: proc(msg: ^Maybe(^Msg)) { // [itc: dispose-contract]
+	if msg^ == nil { return }
+	ptr := (msg^).?
+	free(ptr, ptr.allocator)
+	msg^ = nil
+}
+
 // lifecycle_example shows the complete flow: 
 // 1. Allocation via context.allocator (new).
 // 2. Handling an interrupt.
 // 3. Closing and cleaning up (free).
 lifecycle_example :: proc() -> bool {
-	mb: mbox.Mailbox(Msg)
+	m := new(_Lifecycle_Master) // [itc: heap-master]
+	m_opt: Maybe(^_Lifecycle_Master) = m
+	defer _lifecycle_dispose(&m_opt) // [itc: defer-dispose]
 
 	// 1. Create a message.
 	// You own the memory.
-	m: Maybe(^Msg) = new(Msg) // [itc: maybe-container]
-	m.?.data = 100
+	msg: Maybe(^Msg) = new(Msg) // [itc: maybe-container]
+	msg.?.data = 100
+	msg.?.allocator = context.allocator
 
 	// 2. Interrupt — no message yet, so the waiter gets .Interrupted.
 	// Wakes the next waiter with .Interrupted.
-	mbox.interrupt(&mb)
-	_, err := mbox.wait_receive(&mb)
+	mbox.interrupt(&m.mb)
+	_, err := mbox.wait_receive(&m.mb)
 	if err != .Interrupted {
-		if mp, ok := m.?; ok {free(mp)}
+		_msg_dispose(&msg)
 		return false
 	}
 
 	// 3. Send the message.
 	// The mailbox holds the pointer now.
-	ok := mbox.send(&mb, &m)
+	ok := mbox.send(&m.mb, &msg)
 	if !ok {
-		if mp, ok2 := m.?; ok2 {free(mp)}
+		_msg_dispose(&msg)
 		return false
 	}
 
 	// 4. Shutdown.
-	// close() returns all undelivered messages.
-	remaining, _ := mbox.close(&mb)
+	// Handled by defer _lifecycle_dispose(&m_opt) which drains the mailbox.
 
-	// 5. Cleanup.
-	// You must free anything the mailbox handed back.
-	count := 0
-	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
-		msg := container_of(node, Msg, "node")
-		free(msg)
-		count += 1
-	}
-
-	return count == 1
+	return true
 }

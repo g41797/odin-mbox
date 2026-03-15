@@ -32,34 +32,45 @@ master_shutdown :: proc(m: ^Master) {
 	pool_pkg.destroy(&m.pool)
 }
 
-// master_example shows pool + mailbox owned by one struct, with coordinated shutdown.
+// master_dispose shuts down and frees a heap-allocated Master.
+// Follows the ^Maybe(^T) contract: nil inner is a no-op; sets inner to nil on return.
+master_dispose :: proc(m: ^Maybe(^Master)) { // [itc: dispose-contract]
+	mp, ok := m.?
+	if !ok || mp == nil {return}
+	master_shutdown(mp)
+	free(mp)
+	m^ = nil
+}
+
+// master_example shows pool + mailbox owned by one heap-allocated struct.
 //
 // Flow:
+// - heap-allocate Master.
 // - init: pool pre-allocated, ready to use.
 // - get a message from pool, send to inbox.
-// - shutdown: inbox closed, message returned to pool, pool destroyed.
+// - dispose: inbox closed, message returned to pool, pool destroyed, Master freed.
 master_example :: proc() -> bool {
-	m: Master
-	if !master_init(&m) {
+	m := new(Master) // [itc: heap-master]
+	if !master_init(m) {
+		free(m)
 		return false
 	}
+	m_opt: Maybe(^Master) = m
+	defer master_dispose(&m_opt) // [itc: defer-dispose]
 
 	msg, _ := pool_pkg.get(&m.pool)
 	if msg == nil {
-		master_shutdown(&m)
 		return false
 	}
 	msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
 	msg_opt.?.data = 42
 	ok := mbox.send(&m.inbox, &msg_opt)
 	if !ok {
-		// send failed — return message to pool before shutdown
+		// send failed — return message to pool before dispose
 		// msg_opt is still non-nil (send failed, caller retains ownership)
 		_, _ = pool_pkg.put(&m.pool, &msg_opt)
-		master_shutdown(&m)
 		return false
 	}
 
-	master_shutdown(&m)
 	return true
 }

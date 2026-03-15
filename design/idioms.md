@@ -55,6 +55,9 @@ All `loop_mbox` procs work on the returned pointer: `send`, `try_receive_batch`,
 | `foreign-dispose` | Idiom 6: foreign message with resources | When put returns a foreign pointer, call dispose, not free. |
 | `reset-vs-dispose` | Idiom 7: reset vs dispose | reset clears state for reuse. dispose frees internal resources permanently. |
 | `dispose-optional` | Idiom 8: dispose is advice | dispose is called by the caller, never by pool or mailbox. |
+| `heap-master` | Idiom 9: ITC participants in a heap-allocated struct | Heap-allocate the struct that owns ITC participants when its address is shared with spawned threads. |
+| `thread-container` | Idiom 10: thread is just a container for its master | A thread proc only casts rawptr to ^Owner. No ITC participants declared as stack locals. |
+| `errdefer-dispose` | Idiom 11: conditional defer for factory procs | Use named return + `defer if !ok { dispose(...) }` when a proc creates and returns a master. |
 
 ---
 
@@ -121,6 +124,8 @@ Contract:
 - Nil inner is a no-op.
 - Sets inner to nil on return.
 - Frees all internal resources before freeing the struct itself.
+- Must be safe to call after a partial init. All cleanup steps handle zero-initialized fields.
+- Do not add an error parameter to handle partial init — make the proc defensive.
 
 ---
 
@@ -143,6 +148,8 @@ if mbox.send(&mb, &m) {
 ```
 
 Why: `dispose` with nil inner is a no-op. So using defer is safe whether or not send succeeded.
+
+Same pattern applies to heap-masters — register `defer dispose(&m_opt)` right after successful init. Thread joins run inline before the proc returns, so before the defer fires. Safe.
 
 ---
 
@@ -238,3 +245,85 @@ Cases where dispose is needed:
 Cases where dispose is NOT needed:
 - Message returned to pool via `pool.put` with matching allocator — pool frees it on `destroy`.
 - Message successfully sent — receiver is responsible.
+
+---
+
+### Idiom 9: ITC participants in a heap-allocated struct — `heap-master`
+
+**Problem**: `m: Master` stack-allocated in a proc. `&m.pool`, `&m.inbox` passed to threads. If proc returns before threads finish, the stack frame may be freed while threads still hold pointers.
+
+**Fix**: `m := new(Master)` — heap-allocate. Add a dispose proc following the `^Maybe(^T)` contract. Call dispose after joining all threads.
+
+```odin
+m := new(Master) // [itc: heap-master]
+if !master_init(m) {
+    free(m)
+    return false
+}
+// ... spawn threads passing m ...
+// ... join threads ...
+m_opt: Maybe(^Master) = m
+master_dispose(&m_opt)
+```
+
+Tag: `// [itc: heap-master]` at the `new(Master)` line and at the dispose call.
+
+---
+
+### Idiom 10: thread is just a container for its master — `thread-container`
+
+**Problem**: Thread proc declares ITC participants as stack locals (e.g. `my_inbox: mbox.Mailbox(T)`) and stores their address in messages. The thread proc is stateful. Pointers to stack locals escape the thread's frame.
+
+**Fix**: Move all ITC participants into the master struct. Thread proc only casts `rawptr` to `^Master` and calls master logic. The thread owns nothing.
+
+```odin
+proc(data: rawptr) {
+    c := (^Master)(data) // [itc: thread-container]
+    // use c.inbox, c.pool, c.sema — no stack-local ITC participants
+}
+```
+
+Tag: `// [itc: thread-container]` at the rawptr cast in each thread proc.
+
+---
+
+### Idiom 11: errdefer-dispose — `errdefer-dispose`
+
+**Problem**: A factory proc creates a heap-master and returns it. If any setup step after init fails, the master must be cleaned up before returning an error. Duplicating dispose calls at each error exit is error-prone.
+
+**Fix**: Use a named return `ok` and `defer if !ok { dispose(...) }`.
+
+Two forms side by side:
+
+**Form A — always-dispose** (procs that own the master start to finish):
+
+```odin
+// [itc: defer-dispose]
+m_opt: Maybe(^Master) = m
+defer master_dispose(&m_opt)   // unconditional — fires on all exits
+```
+
+**Form B — errdefer** (factory procs that return the master to the caller):
+
+```odin
+// [itc: errdefer-dispose]
+create_master :: proc() -> (m: ^Master, ok: bool) {
+    raw := new(Master)
+    if !master_init(raw) { free(raw); return }  // ok=false (zero value)
+    m_opt: Maybe(^Master) = raw
+    defer if !ok { master_dispose(&m_opt) }     // checks named return ok at exit time
+
+    // ... more setup that might fail ...
+
+    m = raw
+    ok = true   // success — defer is no-op; caller owns m
+    return
+}
+```
+
+Key: `defer if !ok` checks the named return variable at exit time, not at registration time. On error, any registered errdefer-dispose fires in LIFO order. On success the condition is false — no-op. No separate flag variable needed — the named return is the flag.
+
+Three cases:
+- Init failure: `free(raw)`, bare `return` — dispose not called (partially initialized fields are not safe to shut down).
+- Post-init failure: `ok` remains false at exit → `defer if !ok { dispose }` fires.
+- Success: `ok=true` at exit → defer is a no-op; caller owns the master.

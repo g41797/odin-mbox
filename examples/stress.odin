@@ -6,59 +6,89 @@ import list "core:container/intrusive/list"
 import "core:sync"
 import "core:thread"
 
+// _Stress_Consumer owns all ITC participants for the stress test.
+// Heap-allocated so producer and consumer threads can hold its address safely.
+@(private)
+_Stress_Consumer :: struct {
+	pool:  pool_pkg.Pool(Msg),
+	inbox: mbox.Mailbox(Msg),
+	done:  sync.Sema,
+}
+
+@(private)
+_stress_consumer_init :: proc(c: ^_Stress_Consumer, n: int) -> bool {
+	ok, _ := pool_pkg.init(&c.pool, initial_msgs = n, max_msgs = n, reset = nil)
+	return ok
+}
+
+@(private)
+_stress_consumer_dispose :: proc(c: ^Maybe(^_Stress_Consumer)) { // [itc: dispose-contract]
+	cp, ok := c.?
+	if !ok || cp == nil {return}
+	remaining, _ := mbox.close(&cp.inbox)
+	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		msg := container_of(node, Msg, "node")
+		msg_opt: Maybe(^Msg) = msg
+		_, _ = pool_pkg.put(&cp.pool, &msg_opt)
+	}
+	pool_pkg.destroy(&cp.pool)
+	free(cp)
+	c^ = nil
+}
+
 // stress_example shows many producers, one consumer, with pool recycling.
 //
 // - 10 producers each send 1,000 messages (10,000 total).
 // - 1 consumer receives all messages and returns each to the pool.
 // - Pool is pre-allocated with N messages. Messages come from the pool. No new allocations while running.
-// - After the consumer counts all N, main closes and destroys the pool.
+// - After the consumer counts all N, main joins all threads and disposes the consumer.
 stress_example :: proc() -> bool {
 	N :: 10_000
 	P :: 10
 
-	// Pre-allocate N messages. Producers get from pool; consumer puts back.
-	shared_pool: pool_pkg.Pool(Msg)
-	if ok, _ := pool_pkg.init(&shared_pool, initial_msgs = N, max_msgs = N, reset = nil); !ok {
+	sc := new(_Stress_Consumer) // [itc: heap-master]
+	if !_stress_consumer_init(sc, N) {
+		free(sc)
 		return false
 	}
-
-	mb: mbox.Mailbox(Msg)
-	done: sync.Sema
+	sc_opt: Maybe(^_Stress_Consumer) = sc
+	defer _stress_consumer_dispose(&sc_opt) // [itc: defer-dispose]
 
 	// Consumer: receives messages and returns them to the pool.
-	thread.run_with_poly_data3(
-		&mb,
-		&shared_pool,
-		&done,
-		proc(mb: ^mbox.Mailbox(Msg), p: ^pool_pkg.Pool(Msg), done: ^sync.Sema) {
+	consumer_thread := thread.create_and_start_with_data(
+		sc,
+		proc(data: rawptr) {
+			c := (^_Stress_Consumer)(data) // [itc: thread-container]
 			count := 0
 			for count < N {
-				msg, err := mbox.wait_receive(mb)
+				msg, err := mbox.wait_receive(&c.inbox)
 				if err == .Closed {
 					break
 				}
 				if err == .None {
 					msg_opt: Maybe(^Msg) = msg // [itc: maybe-container]
-					_, _ = pool_pkg.put(p, &msg_opt) // [itc: defer-put]
+					_, _ = pool_pkg.put(&c.pool, &msg_opt) // [itc: defer-put]
 					count += 1
 				}
 			}
-			sync.sema_post(done)
+			sync.sema_post(&c.done)
 		},
 	)
 
 	// P producers: each gets N/P messages from pool and sends them.
-	for _ in 0 ..< P {
-		thread.run_with_poly_data2(
-			&mb,
-			&shared_pool,
-			proc(mb: ^mbox.Mailbox(Msg), p: ^pool_pkg.Pool(Msg)) {
+	producer_threads := make([]^thread.Thread, P)
+	defer delete(producer_threads)
+	for i in 0 ..< P {
+		producer_threads[i] = thread.create_and_start_with_data(
+			sc,
+			proc(data: rawptr) {
+				c := (^_Stress_Consumer)(data) // [itc: thread-container]
 				for _ in 0 ..< N / P {
-					msg, _ := pool_pkg.get(p)
+					msg, _ := pool_pkg.get(&c.pool)
 					if msg != nil {
 						msg_opt: Maybe(^Msg) = msg
-						if !mbox.send(mb, &msg_opt) {
-							_, _ = pool_pkg.put(p, &msg_opt)
+						if !mbox.send(&c.inbox, &msg_opt) {
+							_, _ = pool_pkg.put(&c.pool, &msg_opt)
 						}
 					}
 				}
@@ -66,16 +96,15 @@ stress_example :: proc() -> bool {
 		)
 	}
 
-	sync.sema_wait(&done)
+	sync.sema_wait(&sc.done)
 
-	// Drain any remaining messages back to pool before destroy.
-	remaining, _ := mbox.close(&mb)
-	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
-		msg := container_of(node, Msg, "node")
-		msg_opt: Maybe(^Msg) = msg
-		_, _ = pool_pkg.put(&shared_pool, &msg_opt)
+	// Join all threads before dispose.
+	for i in 0 ..< P {
+		thread.join(producer_threads[i])
+		thread.destroy(producer_threads[i])
 	}
+	thread.join(consumer_thread)
+	thread.destroy(consumer_thread)
 
-	pool_pkg.destroy(&shared_pool)
 	return true
 }

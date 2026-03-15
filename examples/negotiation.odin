@@ -7,12 +7,26 @@ import list "core:container/intrusive/list"
 import "core:nbio"
 import "core:thread"
 
-// _Worker holds pointers to both mailboxes and the result.
+// _Worker holds the loop mailbox, reply mailbox, and the result.
+// Heap-allocated so the worker thread can hold its address safely.
 @(private)
 _Worker :: struct {
 	loop_mb:  ^loop_mbox.Mbox(Msg),
-	reply_mb: ^mbox.Mailbox(Msg),
+	reply_mb: mbox.Mailbox(Msg),
 	ok:       bool,
+}
+
+@(private)
+_worker_dispose :: proc(w: ^Maybe(^_Worker)) { // [itc: dispose-contract]
+	wp, ok := w.?
+	if !ok || wp == nil {return}
+	remaining, _ := mbox.close(&wp.reply_mb)
+	for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
+		msg := (^Msg)(node)
+		free(msg) // reply_mb holds heap ^Msg, not pool messages
+	}
+	free(wp)
+	w^ = nil
 }
 
 // negotiation_example shows request-reply between a worker thread and an nbio event loop.
@@ -44,13 +58,13 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 		loop_mbox.destroy(loop_mb)
 	}
 
-	// reply_mb sends replies back to the worker.
-	reply_mb: mbox.Mailbox(Msg)
-
-	w := _Worker{loop_mb = loop_mb, reply_mb = &reply_mb}
+	w := new(_Worker) // [itc: heap-master]
+	w.loop_mb = loop_mb
+	w_opt: Maybe(^_Worker) = w
+	defer _worker_dispose(&w_opt) // [itc: defer-dispose]
 
 	// Worker: allocates request, sends to loop, waits for reply, frees reply.
-	t := thread.create_and_start_with_poly_data(&w, proc(w: ^_Worker) {
+	t := thread.create_and_start_with_poly_data(w, proc(w: ^_Worker) { // [itc: thread-container]
 		req: Maybe(^Msg) = new(Msg) // [itc: maybe-container]
 		req.?.data = 10
 		if !loop_mbox.send(w.loop_mb, &req) {
@@ -59,7 +73,7 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 		}
 
 		// Worker allocated req; loop will send it back as reply.
-		reply, recv_err := mbox.wait_receive(w.reply_mb)
+		reply, recv_err := mbox.wait_receive(&w.reply_mb)
 		w.ok = recv_err == .None && reply != nil && reply.data == 11
 		if reply != nil {
 			free(reply) // worker frees what it allocated
@@ -80,7 +94,7 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 			msg_inner := (^Msg)(node)
 			msg: Maybe(^Msg) = msg_inner
 			msg.?.data += 1
-			if !mbox.send(&reply_mb, &msg) {
+			if !mbox.send(&w.reply_mb, &msg) {
 				if mp, ok := msg.?; ok {free(mp)}
 			}
 			break

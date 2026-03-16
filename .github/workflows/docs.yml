@@ -37,6 +37,8 @@ jobs:
           # Clone to a temporary location outside the workspace to avoid confusion
           git clone https://github.com/odin-lang/pkg.odin-lang.org /home/runner/odin-doc
           cd /home/runner/odin-doc
+          # Pin to a commit compatible with dev-2026-03 (before Fixed_Capacity_Dynamic_Array was added)
+          git checkout $(git rev-list -n 1 --before="2026-03-01" HEAD)
           # Build renderer and place it in the workspace tools directory
           odin build . -out:$GITHUB_WORKSPACE/tools/odin-doc -o:speed
       - name: Generate documentation

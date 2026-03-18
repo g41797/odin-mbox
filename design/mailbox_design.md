@@ -99,8 +99,8 @@ When `close()` returns, the reference is handed back to the caller via the retur
 - Uses zero CPU while blocking.
 
 ### API
-- `send(msg)` — adds message, signals one waiter.
-- `wait_receive(timeout)` — blocks until message arrives, timeout, or interrupt. Use `timeout=0` for non-blocking poll.
+- `send(msg: ^Maybe(^T))` — adds message, signals one waiter. Sets `msg^ = nil` on success.
+- `wait_receive(msg: ^Maybe(^T), timeout)` — blocks until message arrives, timeout, or interrupt. Fills `msg^` on success. Returns `.Already_In_Use` if `msg^ != nil` on entry. Use `timeout=0` for non-blocking poll.
 - `interrupt()` — sends a one-time signal to wake one waiter with `.Interrupted`. Returns false if already interrupted or closed. Signal is automatically cleared on receipt.
 - `close()` — blocks new sends, wakes all waiters with `.Closed`. Returns `(list.List, bool)` — remaining messages and whether this was the first close.
 
@@ -286,7 +286,8 @@ Odin's two-value unwrap `val, ok := x.?` is one safe approach.
 We use a different approach: nil-guard followed by single-value unwrap.
 
 ```odin
-if msg^ == nil { return false }   // guard: handle nil case
+if msg == nil  { return false }   // guard: nil outer pointer
+if msg^ == nil { return false }   // guard: handle nil inner case
 ptr := (msg^).?                   // safe: already verified non-nil above
 ```
 
@@ -310,6 +311,7 @@ Our pattern lets the callee zero the caller's variable:
 ```odin
 // Callee-managed (our pattern):
 send :: proc(m: ^Mailbox($T), msg: ^Maybe(^T)) -> bool {
+    if msg == nil  { return false }
     if msg^ == nil { return false }
     ptr := (msg^).?
     // ... enqueue ptr ...
@@ -411,32 +413,36 @@ Use this when your messages come from the pool and `send` returns false.
 ### Caller Lifecycle
 
 ```
-pool.get(&p)                     → caller gets ^T
+pool.get(&p, &itm)               → itm^ is non-nil on success (.Ok)
+                                    itm is already Maybe(^T) — no wrapping needed
 
-msg: Maybe(^T) = ptr             → wrap before passing to send/push
+ok := mbox.send(&mb, &itm)
+  ok == true  → itm^ is nil, mailbox owns the item
+  ok == false → itm^ is still non-nil, send failed (closed)
+                → pool.destroy_itm(&p, &itm)   free and nil
 
-ok := mbox.send(&mb, &msg)
-  ok == true  → msg is nil, mailbox owns the message
-  ok == false → msg is still non-nil, send failed (closed)
-                → pool.destroy_msg(&p, &msg)   free and nil
+ok := loop_mbox.send(m, &itm)    → same as above
 
-ok := loop_mbox.send(m, &msg)     → same as above
+foreign, ok := pool.put(&p, &itm)
+  ok == true  → itm^ is nil, pool recycled or freed the item
+  ok == false → itm^ is nil, but foreign != nil — caller frees foreign
 
-foreign, ok := pool.put(&p, &msg)
-  ok == true  → msg is nil, pool recycled or freed the message
-  ok == false → msg is nil, but foreign != nil — caller frees foreign
+pool.destroy_itm(&p, &itm)      → itm^ is nil, item freed
+                                    safe to call if itm^ is already nil
 
-pool.destroy_msg(&p, &msg)       → msg is nil, message freed
-                                    safe to call if msg is already nil
+mbox.wait_receive(&mb, &itm)    → itm^ is non-nil on .None
+                                    returns .Already_In_Use if itm^ != nil on entry
 ```
 
-### What Does NOT Use This Pattern
+### Reverse Direction — Callee Fills Caller's Variable
 
-These functions return a message to the caller. Ownership goes the other way.
+These functions give ownership TO the caller.
+`wait_receive` and `pool.get` use `^Maybe(^T)` as an out-parameter — the callee fills it.
+Unlike `send`/`put`/`push`, they do NOT zero `msg^`. After a successful call, `msg^` is non-nil.
 
-- `mbox.wait_receive` — gives `^T` to caller.
+- `mbox.wait_receive` — fills `msg^` with received item. Returns status only.
+- `pool.get` — fills `itm^` with acquired item. Returns status only.
 - `loop_mbox.try_receive_batch` — gives `list.List` to caller.
-- `pool.get` — gives `^T` to caller.
 - `mbox.close` — gives `list.List` to caller.
 - `mbox.interrupt` — no message involved.
 
@@ -619,6 +625,7 @@ This is the same semantic as Zig's `?*T`, just expressed differently.
 
 ```odin
 put :: proc(p: ^Pool($T), msg: ^Maybe(^T)) -> (^T, bool) {
+    if msg == nil  { return nil, true }  // nil outer — no-op
     if msg^ == nil { return nil, true }  // nil inner — no-op
     ptr := (msg^).?
     // ... recycle ptr ...
@@ -627,6 +634,7 @@ put :: proc(p: ^Pool($T), msg: ^Maybe(^T)) -> (^T, bool) {
 }
 
 send :: proc(m: ^Mailbox($T), msg: ^Maybe(^T)) -> bool {
+    if msg == nil  { return false }
     if msg^ == nil { return false }
     ptr := (msg^).?
     // ... enqueue ptr ...
@@ -877,26 +885,26 @@ Msg :: struct {
 
 ```odin
 p: pool.Pool(Msg)
-pool.init(&p, initial_msgs = 4, max_msgs = 0, reset = nil)
+pool.init(&p, initial_msgs = 4, max_msgs = 0, hooks = pool.T_Hooks(Msg){})
 defer pool.destroy(&p)
 
 // producer
-msg, status := pool.get(&p)   // from free-list or heap
+m: Maybe(^Msg)
+status := pool.get(&p, &m)   // from free-list or heap
 if status != .Ok {
     // handle allocation failure
 }
-m: Maybe(^Msg) = msg
 m.?.data = 42
 ok := mbox.send(&mb, &m)
 if !ok {
-    pool.destroy_msg(&p, &m)   // mailbox closed — free the unsent message
+    pool.destroy_itm(&p, &m)   // mailbox closed — free the unsent message
 }
 
 // consumer
-got, _ := mbox.wait_receive(&mb)
-// use got.data
-m2: Maybe(^Msg) = got
-_, accepted := pool.put(&p, &m2)   // back to free-list
+got: Maybe(^Msg)
+_ = mbox.wait_receive(&mb, &got)
+// use got.?.data
+_, accepted := pool.put(&p, &got)   // back to free-list
 if !accepted {
     // got was foreign — free with correct allocator
 }
@@ -906,7 +914,8 @@ if !accepted {
 
 ```odin
 // blocks up to 100ms; returns Pool_Empty if nothing available
-msg, status := pool.get(&p, .Pool_Only, 100 * time.Millisecond)
+msg: Maybe(^Msg)
+status := pool.get(&p, &msg, .Pool_Only, 100 * time.Millisecond)
 if status != .Ok {
     // no message available
 }
@@ -915,12 +924,12 @@ if status != .Ok {
 #### Error path: send failed
 
 ```odin
-msg, _ := pool.get(&p)
-m: Maybe(^Msg) = msg
+m: Maybe(^Msg)
+pool.get(&p, &m)
 ok := mbox.send(&mb, &m)
 if !ok {
     // mailbox closed — m is still non-nil, we own it
-    pool.destroy_msg(&p, &m)   // free and nil
+    pool.destroy_itm(&p, &m)   // free and nil
 }
 ```
 
@@ -1079,6 +1088,7 @@ This is the same contract as `pool.put` and `mbox.send`.
 
 ```odin
 dispose :: proc(msg: ^Maybe(^DisposableMsg)) {
+    if msg == nil  { return }      // nil outer — no-op
     if msg^ == nil { return }      // nil inner — no-op
     ptr := (msg^).?
     delete(ptr.name, ptr.allocator)
@@ -1133,6 +1143,7 @@ disposable_reset :: proc(msg: ^DisposableMsg, _: pool.Pool_Event) {
 // Called by the caller when the message is permanently done.
 // Frees all internal resources, then frees the struct.
 dispose :: proc(msg: ^Maybe(^DisposableMsg)) {
+    if msg == nil  { return }
     if msg^ == nil { return }
     ptr := (msg^).?
     delete(ptr.name, ptr.allocator)   // free internal resources first
@@ -1145,8 +1156,8 @@ Full lifecycle:
 
 ```odin
 // get from pool — reset runs automatically
-msg, _ := pool.get(&p)
-m: Maybe(^DisposableMsg) = msg
+m: Maybe(^DisposableMsg)
+pool.get(&p, &m)
 defer dispose(&m)
 
 m.?.name = strings.clone("hello", m.?.allocator)
@@ -1157,13 +1168,13 @@ ok := mbox.send(&mb, &m)
 Receiver:
 
 ```odin
-got, _ := mbox.wait_receive(&mb)
-// use got.name
-m2: Maybe(^DisposableMsg) = got
-_, accepted := pool.put(&p, &m2)   // reset runs automatically on put
+got: Maybe(^DisposableMsg)
+_ = mbox.wait_receive(&mb, &got)
+// use got.?.name
+_, accepted := pool.put(&p, &got)   // reset runs automatically on put
 if !accepted {
     // foreign message — must dispose manually
-    dispose(&m2)
+    dispose(&got)
 }
 ```
 
@@ -1218,6 +1229,7 @@ disposable_reset :: proc(msg: ^DisposableMsg, _: pool.Pool_Event) {
 
 // dispose: called once, when message is done
 dispose :: proc(msg: ^Maybe(^DisposableMsg)) {
+    if msg == nil  { return }
     if msg^ == nil { return }
     ptr := (msg^).?
     delete(ptr.name, ptr.allocator)
@@ -1266,6 +1278,7 @@ DisposableMsg :: struct {
 }
 
 dispose :: proc(msg: ^Maybe(^DisposableMsg)) {
+    if msg == nil  { return }
     if msg^ == nil { return }
     ptr := (msg^).?
     delete(ptr.name, ptr.allocator)

@@ -37,6 +37,7 @@ Pool_Status :: enum {
 	Pool_Empty, // free-list empty, strategy = .Pool_Only
 	Out_Of_Memory, // allocator returned nil
 	Closed, // pool is Closed or Uninit
+	Already_In_Use, // caller-provided itm^ != nil
 }
 
 // Pool_Event tells the reset proc why it was called.
@@ -158,30 +159,36 @@ _destroy_list :: proc(p: ^Pool($T), allocator: mem.Allocator) {
 }
 
 // get returns an item from the free-list.
+// .Already_In_Use: itm^ != nil — caller still holds an item, release first.
 // .Always (default): allocates a new one if the pool is empty. timeout is ignored.
-// .Pool_Only + timeout==0: returns (nil, .Pool_Empty) immediately if empty (default behavior).
+// .Pool_Only + timeout==0: returns .Pool_Empty immediately if empty.
 // .Pool_Only + timeout<0: waits forever until put or destroy.
-// .Pool_Only + timeout>0: waits up to that duration; returns (nil, .Pool_Empty) on expiry.
-// Returns (nil, .Closed) if the pool state is not Active (including destroy while waiting).
+// .Pool_Only + timeout>0: waits up to that duration; returns .Pool_Empty on expiry.
+// Returns .Closed if the pool state is not Active (including destroy while waiting).
 // Sets itm.allocator on every returned item (when factory is nil). Calls reset(.Get) only for recycled items.
 get :: proc(
 	p: ^Pool($T),
+	itm: ^Maybe(^T),
 	strategy := Allocation_Strategy.Always,
 	timeout: time.Duration = 0,
-) -> (
-	^T,
-	Pool_Status,
-) where intrinsics.type_has_field(T, "node"),
+) -> Pool_Status where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") ==
 	list.Node,
 	intrinsics.type_has_field(T, "allocator"),
 	intrinsics.type_field_type(T, "allocator") ==
 	mem.Allocator {
+	if itm == nil {
+		return .Already_In_Use
+	}
+	if itm^ != nil {
+		return .Already_In_Use
+	}
+
 	sync.mutex_lock(&p.mutex)
 
 	if p.state != .Active {
 		sync.mutex_unlock(&p.mutex)
-		return nil, .Closed
+		return .Closed
 	}
 
 	raw := list.pop_front(&p.list)
@@ -189,13 +196,13 @@ get :: proc(
 		if timeout == 0 {
 			p.empty_was_returned = true
 			sync.mutex_unlock(&p.mutex)
-			return nil, .Pool_Empty
+			return .Pool_Empty
 		}
 		// Block until an item is available, the pool is closed, or timeout expires.
 		for p.list.head == nil {
 			if p.state != .Active {
 				sync.mutex_unlock(&p.mutex)
-				return nil, .Closed
+				return .Closed
 			}
 			ok: bool
 			if timeout < 0 {
@@ -206,11 +213,11 @@ get :: proc(
 			}
 			if p.state != .Active {
 				sync.mutex_unlock(&p.mutex)
-				return nil, .Closed
+				return .Closed
 			}
 			if !ok {
 				sync.mutex_unlock(&p.mutex)
-				return nil, .Pool_Empty // timeout expired
+				return .Pool_Empty // timeout expired
 			}
 		}
 		raw = list.pop_front(&p.list)
@@ -220,14 +227,15 @@ get :: proc(
 		p.curr_msgs -= 1
 		alloc := p.allocator
 		sync.mutex_unlock(&p.mutex)
-		itm := container_of(raw, T, "node")
-		itm.node = {}
-		itm.allocator = alloc
+		res := container_of(raw, T, "node")
+		res.node = {}
+		res.allocator = alloc
 		if p.hooks.reset != nil {
 			// reset clears the item and exposes stale-pointer bugs early.
-			p.hooks.reset(itm, .Get)
+			p.hooks.reset(res, .Get)
 		}
-		return itm, .Ok
+		itm^ = res
+		return .Ok
 	}
 
 	// strategy == .Always and pool was empty: fresh allocation — do not call reset.
@@ -235,19 +243,21 @@ get :: proc(
 	sync.mutex_unlock(&p.mutex)
 
 	if p.hooks.factory != nil {
-		itm, ok := p.hooks.factory(alloc)
+		res, ok := p.hooks.factory(alloc)
 		if !ok {
-			return nil, .Out_Of_Memory
+			return .Out_Of_Memory
 		}
-		return itm, .Ok
+		itm^ = res
+		return .Ok
 	}
 
-	itm := new(T, alloc)
-	if itm == nil {
-		return nil, .Out_Of_Memory
+	res := new(T, alloc)
+	if res == nil {
+		return .Out_Of_Memory
 	}
-	itm.allocator = alloc
-	return itm, .Ok
+	res.allocator = alloc
+	itm^ = res
+	return .Ok
 }
 
 // put returns itm to the free-list.
@@ -267,6 +277,9 @@ put :: proc(
 	intrinsics.type_has_field(T, "allocator"),
 	intrinsics.type_field_type(T, "allocator") ==
 	mem.Allocator {
+	if itm == nil {
+		return nil, true // nil outer — no-op
+	}
 	if itm^ == nil {
 		return nil, true // nil inner — no-op
 	}
@@ -318,6 +331,9 @@ destroy_itm :: proc(p: ^Pool($T), itm: ^Maybe(^T)) where intrinsics.type_has_fie
 	intrinsics.type_field_type(T, "node") == list.Node,
 	intrinsics.type_has_field(T, "allocator"),
 	intrinsics.type_field_type(T, "allocator") == mem.Allocator {
+	if itm == nil {
+		return
+	}
 	if itm^ == nil {
 		return
 	}

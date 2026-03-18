@@ -23,15 +23,16 @@ import mbox "path/to/odin-itc/mbox"
 mb: mbox.Mailbox(Msg)
 
 // sender thread:
-msg := new(Msg)
-msg.data = 42
-mbox.send(&mb, msg)
+msg: Maybe(^Msg) = new(Msg)
+msg.?.data = 42
+mbox.send(&mb, &msg)
 
 // receiver thread (blocks until message arrives):
-got, err := mbox.wait_receive(&mb)
+got: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &got)
 if err == .None {
-    // use got.data
-    free(got)
+    // use got.?.data
+    free(got.?)
 }
 ```
 

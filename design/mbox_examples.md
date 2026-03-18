@@ -18,21 +18,24 @@ Msg :: struct {
 }
 
 // Sender thread:
-msg := new(Msg)
-msg.data = 42
-ok := mbox.send(&mb, msg)
+msg: Maybe(^Msg) = new(Msg)
+msg.?.data = 42
+mbox.send(&mb, &msg) // msg = nil after this — mailbox owns it
 
 // Receiver (non-blocking poll):
-got, err := mbox.wait_receive(&mb, 0)  // err == .Timeout means no message
-if got != nil { free(got) }
+got: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &got, 0)  // err == .Timeout means no message
+if got != nil { free(got.?) }
 
 // Receiver (blocking, infinite wait):
-got, err := mbox.wait_receive(&mb)
-if got != nil { free(got) }
+got: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &got)
+if got != nil { free(got.?) }
 
 // Receiver (blocking, with timeout):
-got, err := mbox.wait_receive(&mb, 100 * time.Millisecond)
-if got != nil { free(got) }
+got: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &got, 100 * time.Millisecond)
+if got != nil { free(got.?) }
 ```
 
 ---
@@ -69,14 +72,16 @@ Image_Msg :: struct {
 img := new(Image_Msg)
 img.kind = .Process_Image
 img.width = 1920
-mbox.send(&mb, &img.base)  // send the base Envelope
+env: Maybe(^Envelope) = &img.base
+mbox.send(&mb, &env)  // env = nil after this
 
 // Receive and dispatch:
-got, err := mbox.wait_receive(&mb)
-if err == .None {
-    switch got.kind {
+got: Maybe(^Envelope)
+err := mbox.wait_receive(&mb, &got)
+if err == .None && got != nil {
+    switch got.?.kind {
     case .Process_Image:
-        full := (^Image_Msg)(got)
+        full := (^Image_Msg)(got.?)
         fmt.printf("Processing %d wide image\n", full.width)
         free(full)
     case .Save_File:
@@ -98,11 +103,12 @@ Note: for this pattern, `mb` is `mbox.Mailbox(Envelope)`.
 _, _ = mbox.close(&mb)
 
 // Receiver checks for it:
-msg, err := mbox.wait_receive(&mb)
+msg: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &msg)
 switch err {
 case .None:
     // process msg, then free it
-    free(msg)
+    free(msg.?)
 case .Closed:
     // mailbox is closed, stop receiving
 case .Timeout:
@@ -124,7 +130,8 @@ The interrupted flag is self-clearing: `wait_receive` clears it when it returns 
 ok := mbox.interrupt(&mb)
 
 // The waiting thread gets .Interrupted:
-msg, err := mbox.wait_receive(&mb)
+msg: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &msg)
 if err == .Interrupted {
     // stop work
 }
@@ -153,10 +160,11 @@ req := new(Req)
 req.data = 10
 mbox.send_to_loop(&loop_mb, req)
 
-reply, err := mbox.wait_receive(&reply_mb)
+reply: Maybe(^Reply)
+err := mbox.wait_receive(&reply_mb, &reply)
 if reply != nil {
-    // use reply.data
-    free(reply) // worker frees what it allocated
+    // use reply.?.data
+    free(reply.?) // worker frees what it allocated
 }
 
 // nbio loop — drain on wake, reuse received message as reply:
@@ -185,16 +193,17 @@ pool_pkg.init(&shared_pool, initial_msgs = N, max_msgs = N)
 
 // Consumer thread:
 for {
-    msg, err := mbox.wait_receive(&mb)
+    msg: Maybe(^Msg)
+    err := mbox.wait_receive(&mb, &msg)
     if err == .Closed { break }
-    pool_pkg.put(&shared_pool, msg)  // return to pool
+    pool_pkg.put(&shared_pool, &msg)  // return to pool
 }
 
 // Each producer thread:
 for _ in 0 ..< N / P {
-    msg := pool_pkg.get(&shared_pool)
-    if msg != nil {
-        mbox.send(&mb, msg)
+    msg: Maybe(^Msg)
+    if pool_pkg.get(&shared_pool, &msg) == .Ok {
+        mbox.send(&mb, &msg)
     }
 }
 
@@ -262,22 +271,22 @@ One thread allocates the message. One thread frees it after the game ends.
 
 ```odin
 // Before starting threads: allocate once on the heap.
-baton := new(Msg)
-mbox.send(&mboxes[0], baton)
+baton: Maybe(^Msg) = new(Msg)
+mbox.send(&mboxes[0], &baton)
 
 // Runner i:
 for {
-    baton, err := mbox.wait_receive(my_mb)
+    baton: Maybe(^Msg)
+    err := mbox.wait_receive(my_mb, &baton)
     if err != .None { break }
 
     // process baton...
 
-    mbox.send(next_mb, baton)
+    mbox.send(next_mb, &baton)
 }
 
-// After all threads exit: free the baton.
+// After all threads exit: free the baton if still held.
 // (It is in exactly one mailbox or held by one thread at close time.)
-free(baton)
 ```
 
 This pattern is perfect for:
@@ -301,17 +310,18 @@ p: pool_pkg.Pool(Msg)
 pool_pkg.init(&p, initial_msgs = 64, max_msgs = 256)
 
 // Sender thread: take from pool, fill data, send.
-msg := pool_pkg.get(&p)
-if msg != nil {
-    msg.data = 42
-    mbox.send(&mb, msg)
+msg: Maybe(^Msg)
+if pool_pkg.get(&p, &msg) == .Ok {
+    msg.?.data = 42
+    mbox.send(&mb, &msg)
 }
 
 // Receiver thread: receive, use, return to pool.
-got, err := mbox.wait_receive(&mb)
-if err == .None && got != nil {
-    // use got.data
-    pool_pkg.put(&p, got)
+got: Maybe(^Msg)
+err := mbox.wait_receive(&mb, &got)
+if err == .None {
+    // use got.?.data
+    pool_pkg.put(&p, &got)
 }
 
 // Cleanup (after all threads are done):
@@ -350,8 +360,8 @@ master_shutdown :: proc(m: ^Master) {
 
     // 2. Return them to pool — not free, pool owns them.
     for node := list.pop_front(&remaining); node != nil; node = list.pop_front(&remaining) {
-        msg := container_of(node, Msg, "node")
-        pool_pkg.put(&m.pool, msg)
+        msg_opt: Maybe(^Msg) = container_of(node, Msg, "node")
+        pool_pkg.put(&m.pool, &msg_opt)
     }
 
     // 3. Now safe to destroy pool.

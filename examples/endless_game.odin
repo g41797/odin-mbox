@@ -86,18 +86,18 @@ endless_game_example :: proc() -> bool {
 	for i in 0 ..< PLAYERS {
 		m.threads[i] = thread.create_and_start_with_poly_data(&m.players[i], proc(p: ^Player) { // [itc: thread-container]
 			for {
-				dice, err := mbox.wait_receive(p.in_mb)
-				if err != .None {
+				dice_opt: Maybe(^Dice)
+				err := mbox.wait_receive(p.in_mb, &dice_opt)
+				if err != .None || dice_opt == nil {
 					break
 				}
 
 				// Player 1 counts each full round.
 				if p.id == 1 {
-					dice.rolls += 1
+					(dice_opt.?).rolls += 1
 				}
 
-				game_done := dice.rolls >= p.total
-				dice_opt: Maybe(^Dice) = dice // [itc: maybe-container]
+				game_done := (dice_opt.?).rolls >= p.total
 				ok := mbox.send(p.next_mb, &dice_opt)
 				if game_done {
 					sync.sema_post(p.done)

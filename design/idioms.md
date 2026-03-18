@@ -3,6 +3,41 @@
 Quick reference for odin-itc idioms.
 Each idiom has a short tag for grep.
 
+These are not laws. No one is forced to follow them.
+They are patterns that worked. Take what helps, ignore the rest.
+
+---
+
+## The Golden Rule: One Variable Lifecycle
+
+**Mantra:** One convention across all transfer points. Same variable, whole lifetime, misuse detected at every boundary.
+
+### The Rule
+
+1.  **`^Maybe(^T)` replaces `^T` return:** Wherever an item is acquired or transferred (`get`, `receive`), it is passed as a parameter, not returned.
+2.  **Check on Entry:** Every proc checks `itm^ != nil` on entry. If the caller still holds an item, it returns `.Already_In_Use`. This prevents overwriting valid data.
+3.  **One Variable:** The caller uses a single variable from `get` -> `send` -> `wait_receive` -> `put` -> `dispose`.
+
+### Lifecycle in one variable
+
+```odin
+m: Maybe(^Itm)
+
+// 1. Acquire
+get(&p, &m)            // Returns .Already_In_Use if m != nil
+defer dispose(&m)      // Safety net: no-op if transferred, cleans up if stuck
+
+// 2. Use
+// fill m^ ...
+
+// 3. Transfer
+send(&mb, &m)          // m = nil on success (dispose becomes no-op)
+                       // m != nil on failure (dispose cleans up)
+
+// 4. Loop
+// On next iteration, get(&p, &m) verifies m is nil.
+```
+
 ---
 
 ## Building blocks
@@ -65,13 +100,13 @@ Why a pool? Creating and freeing items on every operation wastes time and fragme
 
 ### Mbox (Mailbox)
 
-A mailbox moves ownership of an item from one Master to another.
+A mailbox moves a pointer from one Master to another.
 
-- Sender (a Master) calls `mbox.send` with `^Maybe(^Itm)`. On success, inner pointer becomes nil — sender no longer owns the item.
-- Receiver (a Master) calls `mbox.wait_receive` (blocking) or `mbox.try_receive_batch` (non-blocking). Receiver becomes the new owner.
+- Sender (a Master) calls `mbox.send` with `^Maybe(^Itm)`. On success, inner pointer becomes nil — transfer complete, sender no longer holds the pointer.
+- Receiver (a Master) calls `mbox.wait_receive` (blocking) or `mbox.try_receive_batch` (non-blocking). Receiver becomes the new holder.
 - `mbox.close` signals no more items will come. Receiver drains and exits.
 
-Why `^Maybe(^T)` instead of a plain pointer? A plain pointer cannot signal "ownership was taken." `Maybe(^T)` adds that: nil inner means the item is gone. This prevents use-after-send.
+Why `^Maybe(^T)` instead of a plain pointer? A plain pointer cannot signal that transfer occurred. `Maybe(^T)` adds that: nil inner means transfer complete. This prevents use-after-send.
 
 Why a mailbox instead of a mutex + queue? The mailbox owns the queue and the synchronization. Masters just send and receive. They do not manage locking.
 
@@ -97,7 +132,7 @@ Thread A                    Thread B
 Lifecycle of a disposable item:
 
 1. Master A initializes Pool (with `T_Hooks`) and Mbox.
-2. Master A calls `pool.get` → borrows item → fills internal resources → `mbox.send` → ownership transfers to Master B.
+2. Master A calls `pool.get` → borrows item → fills internal resources → `mbox.send` → pointer transfers to Master B.
 3. Master B calls `mbox.receive` → uses item → `pool.put` → pool calls `reset` → item returns to free list.
 4. On shutdown: `mbox.close` → Master B drains remaining items → `pool.destroy` → pool calls `dispose` on remaining items.
 
@@ -162,7 +197,7 @@ Where to find this documentation: `design/idioms.md`
 
 ## Core invariants
 
-- **Ownership**: transfer heap pointers via `^Maybe(^T)`. On success, inner is nil — receiver owns it. On failure, inner is unchanged — caller still owns it.
+- **Ownership**: transfer heap pointers via `^Maybe(^T)`. On success, inner is nil — transfer complete. On failure, inner is unchanged — caller retains the pointer.
 - **Lifecycle**: items with internal resources use factory/reset/dispose. Register them in `T_Hooks`. The pool calls them automatically.
 - **Concurrency**: ITC participants live in heap-allocated structs. Thread procs hold only a pointer to the owner struct.
 
@@ -172,7 +207,7 @@ Where to find this documentation: `design/idioms.md`
 
 | Tag | Name | One line |
 |-----|------|----------|
-| `maybe-container` | Maybe as container | Wrap a heap pointer in `Maybe(^T)` before any ownership-transferring call. |
+| `maybe-container` | Maybe as container | Wrap a heap pointer in `Maybe(^T)` before any pointer-transferring call. |
 | `defer-put` | defer with pool.put | Use `defer pool.put` to return to pool in all paths. |
 | `dispose-contract` | dispose signature contract | A dispose proc takes `^Maybe(^T)`. Nil inner is a no-op. Sets inner to nil on return. Register it in `T_Hooks.dispose` for pool-managed cleanup. |
 | `defer-dispose` | defer with dispose | Use `defer dispose(&m)` so cleanup runs in all paths. |
@@ -192,7 +227,7 @@ Where to find this documentation: `design/idioms.md`
 
 | Tag | One line |
 |-----|----------|
-| `maybe-container` | Wrap a heap pointer in `Maybe(^T)` before any ownership-transferring call. |
+| `maybe-container` | Wrap a heap pointer in `Maybe(^T)` before any pointer-transferring call. |
 | `dispose-contract` | A dispose proc takes `^Maybe(^T)`. Nil inner is a no-op. Sets inner to nil on return. |
 | `defer-dispose` | Use `defer dispose(&m)` so cleanup runs in all paths. |
 | `errdefer-dispose` | Use named return + `defer if !ok { dispose(...) }` when a factory proc creates and returns a master. |
@@ -202,16 +237,42 @@ Where to find this documentation: `design/idioms.md`
 
 **Problem**: You have a `^T` from `new` or `pool.get`. You want to pass it to `send` or `push` safely.
 
-**Fix**: Wrap it in `Maybe(^T)` before any ownership-transferring call.
+**Fix**: Wrap it in `Maybe(^T)` before any pointer-transferring call.
 
 ```odin
 // [itc: maybe-container]
 m: Maybe(^Itm) = new(Itm)
 mbox.send(&mb, &m)
-// m is nil here — the mailbox owns the pointer
+// m is nil here — transfer complete, mailbox holds the pointer
 ```
 
-**Why**: The `send`/`push`/`put` APIs take `^Maybe(^T)`. On success, they set the inner pointer to nil. This prevents use-after-send. On failure (closed), inner is left unchanged — the caller still owns it.
+```markdown
+**Why**: `^Maybe(^T)` is the single contract across all transfer APIs.
+
+Every API that moves a pointer follows the same rules:
+
+**On entry:**
+- `msg == nil` — nil pointer to Maybe itself. Defensive check. No-op, returns false/error.
+- `msg^ == nil` — empty Maybe. Caller has nothing. No-op, returns false/error.
+- `msg^ != nil` — caller holds a pointer. Proceed.
+
+**On exit:**
+- Success — `msg^ = nil`. Transfer complete. Caller must not touch the pointer.
+- Failure (closed, full, timeout) — `msg^` unchanged. Transfer did not occur. Caller still holds it.
+- Failure (internal error) — `msg^ = nil`. Pointer was consumed internally. Caller must not touch it.
+
+**APIs that follow this contract:**
+- `mbox.send` — transfers to mailbox queue.
+- `mbox.push` — transfers to mailbox queue (non-blocking variant).
+- `pool.put` — returns item to pool free-list.
+- `dispose` — frees item permanently.
+
+**Result:** One variable, one check, same meaning everywhere.
+```odin
+if m != nil { /* I hold it — my responsibility */ }
+// vs
+if m == nil { /* transferred — not my problem anymore */ }
+```
 
 ---
 
@@ -224,7 +285,8 @@ mbox.send(&mb, &m)
 ```odin
 // [itc: dispose-contract]
 disposable_dispose :: proc(itm: ^Maybe(^DisposableItm)) {
-    if itm^ == nil {return}
+    if itm == nil  { return }
+    if itm^ == nil { return }
     ptr := (itm^).?
     if ptr.name != "" { delete(ptr.name, ptr.allocator) }
     free(ptr, ptr.allocator)
@@ -557,14 +619,13 @@ This matrix identifies which example files demonstrate each idiom. All idioms me
 
 | Category | Invariant | Status |
 | :--- | :--- | :--- |
-| **Ownership** | Ownership transfers always use `^Maybe(^T)` | Verified |
+| **Ownership** | Pointer transfers always use `^Maybe(^T)` | Verified |
 | **Stack Safety** | No ITC participants shared from stack | Verified |
 | **Cleanup** | Every allocation has cleanup path | Verified |
 | **Pool Hygiene** | Foreign pointers handled correctly | Verified |
 | **Factory Safety** | Factories use `errdefer` pattern | Verified |
-| **Thread Isolation**| `thread-container` idiom used as mandatory baseline | Verified |
+| **Thread Isolation** | `thread-container` idiom used as mandatory baseline | Verified |
 | **Scope Safety** | Runtime resources use `defer-destroy` in examples | Verified |
-
 
 ### loop_mbox and nbio_mbox
 
@@ -575,3 +636,5 @@ This matrix identifies which example files demonstrate each idiom. All idioms me
 All `loop_mbox` procs work on the returned pointer: `send`, `try_receive_batch`, `close`, `destroy`.
 
 ---
+
+*There are several ways to skin a cat. These idioms are one way. Use what works for you.*

@@ -37,8 +37,9 @@ close_example :: proc() -> bool {
 	err_result: mbox.Mailbox_Error
 	t := thread.create_and_start_with_poly_data2(&m.mb, &err_result, proc(mb: ^mbox.Mailbox(Itm), res: ^mbox.Mailbox_Error) {
 		// [itc: thread-container] (mb is part of heap-master)
-		_, err := mbox.wait_receive(mb)
-		res^ = err
+		m_itm: Maybe(^Itm)
+		res^ = mbox.wait_receive(mb, &m_itm)
+		_itm_dispose(&m_itm)
 	})
 
 	// Wait for the thread to enter wait_receive.

@@ -42,16 +42,18 @@ test_send_and_receive :: proc(t: ^testing.T) {
 	ok := mbox.send(&mb, &m_opt)
 	testing.expect(t, ok, "send should return true")
 
-	got, err := mbox.wait_receive(&mb, 0)
+	got: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &got, 0)
 	testing.expect(t, err == .None, "wait_receive should return .None")
-	testing.expect(t, got != nil && got.data == 42, "wait_receive wrong data")
-	if got != nil {free(got)}
+	testing.expect(t, got != nil && got.?.data == 42, "wait_receive wrong data")
+	if got != nil {free(got.?)}
 }
 
 @(test)
 test_empty_returns_timeout :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(examples.Itm)
-	got, err := mbox.wait_receive(&mb, 0)
+	got: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &got, 0)
 	testing.expect(t, err == .Timeout, "empty mailbox should return .Timeout")
 	testing.expect(t, got == nil, "empty mailbox should return nil message")
 }
@@ -59,14 +61,16 @@ test_empty_returns_timeout :: proc(t: ^testing.T) {
 @(test)
 test_timeout_on_empty :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(examples.Itm)
-	_, err := mbox.wait_receive(&mb, 10 * time.Millisecond)
+	got: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &got, 10 * time.Millisecond)
 	testing.expect(t, err == .Timeout, "wait_receive on empty mailbox should timeout")
 }
 
 @(test)
 test_zero_timeout :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(examples.Itm)
-	_, err := mbox.wait_receive(&mb, 0)
+	got: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &got, 0)
 	testing.expect(
 		t,
 		err == .Timeout,
@@ -98,8 +102,8 @@ test_close_wakes_waiter :: proc(t: ^testing.T) {
 		&result,
 		&done,
 		proc(mb: ^mbox.Mailbox(examples.Itm), result: ^mbox.Mailbox_Error, done: ^sync.Sema) {
-			_, err := mbox.wait_receive(mb)
-			result^ = err
+			msg: Maybe(^examples.Itm)
+			result^ = mbox.wait_receive(mb, &msg)
 			sync.sema_post(done)
 		},
 	)
@@ -154,8 +158,8 @@ test_interrupt_wakes_waiter :: proc(t: ^testing.T) {
 		&result,
 		&done,
 		proc(mb: ^mbox.Mailbox(examples.Itm), result: ^mbox.Mailbox_Error, done: ^sync.Sema) {
-			_, err := mbox.wait_receive(mb)
-			result^ = err
+			msg: Maybe(^examples.Itm)
+			result^ = mbox.wait_receive(mb, &msg)
 			sync.sema_post(done)
 		},
 	)
@@ -203,13 +207,14 @@ test_reuse_via_zero :: proc(t: ^testing.T) {
 	ok := mbox.send(&mb, &m_opt)
 	testing.expect(t, ok, "send after reinitialization should succeed")
 
-	got, err2 := mbox.wait_receive(&mb, 0)
+	got: Maybe(^examples.Itm)
+	err2 := mbox.wait_receive(&mb, &got, 0)
 	testing.expect(
 		t,
-		err2 == .None && got != nil && got.data == 7,
+		err2 == .None && got != nil && got.?.data == 7,
 		"wait_receive should return message",
 	)
-	if got != nil {free(got)}
+	if got != nil {free(got.?)}
 }
 
 @(test)
@@ -226,16 +231,19 @@ test_fifo_order :: proc(t: ^testing.T) {
 	c_opt: Maybe(^examples.Itm) = c
 	mbox.send(&mb, &c_opt)
 
-	got1, _ := mbox.wait_receive(&mb, 0)
-	got2, _ := mbox.wait_receive(&mb, 0)
-	got3, _ := mbox.wait_receive(&mb, 0)
+	got1: Maybe(^examples.Itm)
+	got2: Maybe(^examples.Itm)
+	got3: Maybe(^examples.Itm)
+	mbox.wait_receive(&mb, &got1, 0)
+	mbox.wait_receive(&mb, &got2, 0)
+	mbox.wait_receive(&mb, &got3, 0)
 
-	testing.expect(t, got1 != nil && got1.data == 1, "first message should be 1")
-	testing.expect(t, got2 != nil && got2.data == 2, "second message should be 2")
-	testing.expect(t, got3 != nil && got3.data == 3, "third message should be 3")
-	if got1 != nil {free(got1)}
-	if got2 != nil {free(got2)}
-	if got3 != nil {free(got3)}
+	testing.expect(t, got1 != nil && got1.?.data == 1, "first message should be 1")
+	testing.expect(t, got2 != nil && got2.?.data == 2, "second message should be 2")
+	testing.expect(t, got3 != nil && got3.?.data == 3, "third message should be 3")
+	if got1 != nil {free(got1.?)}
+	if got2 != nil {free(got2.?)}
+	if got3 != nil {free(got3.?)}
 }
 
 @(test)
@@ -254,11 +262,12 @@ test_wait_receive_gets_message :: proc(t: ^testing.T) {
 		mbox.send(mb, m)
 	})
 
-	got, err := mbox.wait_receive(&mb)
+	got: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &got)
 	testing.expect(t, err == .None, "wait_receive should not error")
-	testing.expect(t, got != nil && got.data == 99, "wait_receive should get the sent message")
+	testing.expect(t, got != nil && got.?.data == 99, "wait_receive should get the sent message")
 	if got != nil {
-		free(got)
+		free(got.?)
 	}
 }
 
@@ -283,7 +292,8 @@ test_many_waiters_wake_on_close :: proc(t: ^testing.T) {
 		}
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_Multi_Waiter_Ctx)(data)
-			_, c.result = mbox.wait_receive(c.mb)
+			msg: Maybe(^examples.Itm)
+			c.result = mbox.wait_receive(c.mb, &msg)
 			sync.sema_post(c.done)
 		})
 	}
@@ -320,7 +330,8 @@ test_many_waiters_one_message :: proc(t: ^testing.T) {
 		}
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_Multi_Waiter_Ctx)(data)
-			_, c.result = mbox.wait_receive(c.mb)
+			msg: Maybe(^examples.Itm)
+			c.result = mbox.wait_receive(c.mb, &msg)
 			sync.sema_post(c.done)
 		})
 	}
@@ -373,7 +384,8 @@ test_many_waiters_one_interrupt :: proc(t: ^testing.T) {
 		}
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_Multi_Waiter_Ctx)(data)
-			_, c.result = mbox.wait_receive(c.mb)
+			msg: Maybe(^examples.Itm)
+			c.result = mbox.wait_receive(c.mb, &msg)
 			sync.sema_post(c.done)
 		})
 	}
@@ -446,7 +458,8 @@ test_heavy_racing :: proc(t: ^testing.T) {
 		recv_threads[i] = thread.create_and_start_with_data(&recv_ctxs[i], proc(data: rawptr) {
 			c := (^_Receiver_Ctx)(data)
 			for intrinsics.atomic_load(c.received) < 1000 {
-				_, err := mbox.wait_receive(c.mb, 0)
+				msg: Maybe(^examples.Itm)
+				err := mbox.wait_receive(c.mb, &msg, 0)
 				if err == .None {
 					intrinsics.atomic_add(c.received, 1)
 				}
@@ -466,6 +479,25 @@ test_heavy_racing :: proc(t: ^testing.T) {
 	testing.expect(t, received == 1_000, "all 1000 messages should be received")
 }
 
+// test_wait_receive_already_in_use: calling wait_receive with msg^ != nil must return .Already_In_Use.
+@(test)
+test_wait_receive_already_in_use :: proc(t: ^testing.T) {
+	mb: mbox.Mailbox(examples.Itm)
+	m := new(examples.Itm); m.data = 1
+	m_opt: Maybe(^examples.Itm) = m
+	mbox.send(&mb, &m_opt)
+
+	got: Maybe(^examples.Itm)
+	mbox.wait_receive(&mb, &got, 0) // picks up the queued message
+	testing.expect(t, got != nil, "first wait_receive should return a message")
+
+	// Call wait_receive again without clearing got — must get .Already_In_Use.
+	err := mbox.wait_receive(&mb, &got, 0)
+	testing.expect(t, err == .Already_In_Use, "wait_receive should return .Already_In_Use if msg is not nil")
+
+	if got != nil {free(got.?)}
+}
+
 // test_interrupted_then_closed: interrupt then close. wait_receive must return .Closed.
 // close() clears the interrupted flag, so .Closed takes precedence.
 @(test)
@@ -473,6 +505,7 @@ test_interrupted_then_closed :: proc(t: ^testing.T) {
 	mb: mbox.Mailbox(examples.Itm)
 	mbox.interrupt(&mb)
 	mbox.close(&mb)
-	_, err := mbox.wait_receive(&mb, 0)
+	msg: Maybe(^examples.Itm)
+	err := mbox.wait_receive(&mb, &msg, 0)
 	testing.expect(t, err == .Closed, "closed should take precedence over interrupted")
 }

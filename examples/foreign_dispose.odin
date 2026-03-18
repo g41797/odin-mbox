@@ -13,6 +13,7 @@ ForeignItm :: struct {
 }
 
 foreign_dispose :: proc(itm: ^Maybe(^ForeignItm)) { // [itc: dispose-contract]
+	if itm == nil { return }
 	if itm^ == nil { return }
 	ptr := (itm^).?
 	delete(ptr.name, ptr.allocator)

@@ -36,7 +36,8 @@ Quick start:
 	}
 
 	// sender thread:
-	loop_mbox.send(m, msg)
+	msg: Maybe(^Msg) = new(Msg)
+	loop_mbox.send(m, &msg) // msg = nil after this
 
 	// event-loop thread:
 	for {

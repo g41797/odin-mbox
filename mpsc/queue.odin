@@ -33,6 +33,9 @@ init :: proc(q: ^Queue($T)) where intrinsics.type_has_field(T, "node"),
 // On success: msg^ = nil (ownership transferred to queue), returns true.
 push :: proc(q: ^Queue($T), msg: ^Maybe(^T)) -> bool where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") == list.Node {
+	if msg == nil {
+		return false
+	}
 	if msg^ == nil {
 		return false
 	}
@@ -56,6 +59,9 @@ push :: proc(q: ^Queue($T), msg: ^Maybe(^T)) -> bool where intrinsics.type_has_f
 //   - Stall: a producer has started push but not yet finished linking the node.
 //     In a stall, len may be > 0 while pop returns nil.
 //     Treat nil as "try again". The next call to pop will return the message.
+//
+// Wrap the result in Maybe(^T) for lifecycle tracking: m = pop(q)
+
 pop :: proc(q: ^Queue($T)) -> ^T where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") == list.Node {
 	tail := q.tail

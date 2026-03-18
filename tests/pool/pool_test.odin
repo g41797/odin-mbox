@@ -95,10 +95,11 @@ test_pool_get_always :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Empty pool, .Always strategy — must allocate a new item.
-	itm, _ := pool_pkg.get(&p)
-	testing.expect(t, itm != nil, "get(.Always) on empty pool should return non-nil")
-	if itm != nil {
-		free(itm, itm.allocator)
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Ok && m != nil, "get(.Always) on empty pool should return non-nil")
+	if m != nil {
+		free(m.?, (m.?).allocator)
 	}
 }
 
@@ -109,8 +110,9 @@ test_pool_get_pool_only :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Empty pool, .Pool_Only — must return nil.
-	itm, _ := pool_pkg.get(&p, .Pool_Only)
-	testing.expect(t, itm == nil, "get(.Pool_Only) on empty pool should return nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only)
+	testing.expect(t, status == .Pool_Empty && m == nil, "get(.Pool_Only) on empty pool should return nil")
 }
 
 @(test)
@@ -120,21 +122,23 @@ test_pool_put_and_get :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Get a fresh item (sets itm.allocator), put it back, get again.
-	orig, _ := pool_pkg.get(&p)
-	testing.expect(t, orig != nil, "initial get should return non-nil")
-	if orig == nil {
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Ok && m != nil, "initial get should return non-nil")
+	if m == nil {
 		return
 	}
+	orig := m.?
 	orig.data = 42
-	orig_opt: Maybe(^Test_Itm) = orig // [itc: maybe-container]
-	pool_pkg.put(&p, &orig_opt) // [itc: defer-put]
+	pool_pkg.put(&p, &m) // [itc: defer-put]
 
-	got, _ := pool_pkg.get(&p)
-	testing.expect(t, got != nil, "get after put should return non-nil")
-	testing.expect(t, got == orig, "get should return the same pointer that was put")
-	testing.expect(t, got.data == 42, "data should be preserved after put/get round-trip")
+	got: Maybe(^Test_Itm)
+	status = pool_pkg.get(&p, &got)
+	testing.expect(t, status == .Ok && got != nil, "get after put should return non-nil")
+	testing.expect(t, got.? == orig, "get should return the same pointer that was put")
+	testing.expect(t, (got.?).data == 42, "data should be preserved after put/get round-trip")
 	if got != nil {
-		free(got, got.allocator)
+		free(got.?, (got.?).allocator)
 	}
 }
 
@@ -145,13 +149,14 @@ test_pool_respects_max :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Get 3 items from pool (sets allocator on each).
-	itm1, _ := pool_pkg.get(&p)
-	itm2, _ := pool_pkg.get(&p)
-	itm3, _ := pool_pkg.get(&p)
+	m1, m2, m3: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m1)
+	pool_pkg.get(&p, &m2)
+	pool_pkg.get(&p, &m3)
 
-	itm1_opt: Maybe(^Test_Itm) = itm1; pool_pkg.put(&p, &itm1_opt) // curr_msgs = 1
-	itm2_opt: Maybe(^Test_Itm) = itm2; pool_pkg.put(&p, &itm2_opt) // curr_msgs = 2
-	itm3_opt: Maybe(^Test_Itm) = itm3; pool_pkg.put(&p, &itm3_opt) // exceeds max — pool frees itm3
+	pool_pkg.put(&p, &m1) // curr_msgs = 1
+	pool_pkg.put(&p, &m2) // curr_msgs = 2
+	pool_pkg.put(&p, &m3) // exceeds max — pool frees itm3
 
 	testing.expect(t, p.curr_msgs == 2, "curr_msgs should stay at max after excess put")
 }
@@ -166,16 +171,18 @@ test_pool_preinit :: proc(t: ^testing.T) {
 
 	// All 4 gets should return pre-allocated items.
 	for _ in 0 ..< 4 {
-		itm, _ := pool_pkg.get(&p, .Pool_Only)
-		testing.expect(t, itm != nil, "pre-allocated get should return non-nil")
-		if itm != nil {
-			free(itm, itm.allocator)
+		m: Maybe(^Test_Itm)
+		status := pool_pkg.get(&p, &m, .Pool_Only)
+		testing.expect(t, status == .Ok && m != nil, "pre-allocated get should return non-nil")
+		if m != nil {
+			free(m.?, (m.?).allocator)
 		}
 	}
 
 	// Pool is now empty.
-	fifth, _ := pool_pkg.get(&p, .Pool_Only)
-	testing.expect(t, fifth == nil, "pool should be empty after 4 gets")
+	m5: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m5, .Pool_Only)
+	testing.expect(t, status == .Pool_Empty && m5 == nil, "pool should be empty after 4 gets")
 }
 
 @(test)
@@ -184,14 +191,14 @@ test_pool_closed_get :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){})
 
 	// Get a fresh item (sets allocator), put it back into pool.
-	itm, _ := pool_pkg.get(&p)
-	itm_opt: Maybe(^Test_Itm) = itm
-	pool_pkg.put(&p, &itm_opt)
+	m: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m)
+	pool_pkg.put(&p, &m)
 
 	pool_pkg.destroy(&p) // marks closed, frees pool items
 
-	got, _ := pool_pkg.get(&p)
-	testing.expect(t, got == nil, "get on closed pool should return nil")
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Closed && m == nil, "get on closed pool should return nil")
 }
 
 @(test)
@@ -227,8 +234,9 @@ test_pool_destroy :: proc(t: ^testing.T) {
 
 	pool_pkg.destroy(&p)
 
-	got, _ := pool_pkg.get(&p)
-	testing.expect(t, got == nil, "get after destroy should return nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Closed && m == nil, "get after destroy should return nil and .Closed")
 	testing.expect(t, p.state == .Closed, "pool should be marked closed after destroy")
 }
 
@@ -242,11 +250,11 @@ test_pool_get_status_ok :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, initial_msgs = 1, hooks = pool_pkg.T_Hooks(Test_Itm){})
 	defer pool_pkg.destroy(&p)
 
-	itm, status := pool_pkg.get(&p)
-	testing.expect(t, status == .Ok, "status should be .Ok")
-	testing.expect(t, itm != nil, "itm should be non-nil")
-	if itm != nil {
-		free(itm, itm.allocator)
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Ok && m != nil, "status should be .Ok and m should be non-nil")
+	if m != nil {
+		free(m.?, (m.?).allocator)
 	}
 }
 
@@ -256,9 +264,9 @@ test_pool_get_status_pool_empty :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){}) // empty pool
 	defer pool_pkg.destroy(&p)
 
-	itm, status := pool_pkg.get(&p, .Pool_Only)
-	testing.expect(t, status == .Pool_Empty, "status should be .Pool_Empty")
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only)
+	testing.expect(t, status == .Pool_Empty && m == nil, "status should be .Pool_Empty and m should be nil")
 }
 
 @(test)
@@ -267,18 +275,18 @@ test_pool_get_status_closed :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){})
 	pool_pkg.destroy(&p)
 
-	itm, status := pool_pkg.get(&p)
-	testing.expect(t, status == .Closed, "status should be .Closed")
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Closed && m == nil, "status should be .Closed and m should be nil")
 }
 
 @(test)
 test_pool_get_status_uninit :: proc(t: ^testing.T) {
 	p: pool_pkg.Pool(Test_Itm) // zero value — state is .Uninit
 
-	itm, status := pool_pkg.get(&p)
-	testing.expect(t, status == .Closed, "uninit pool status should be .Closed")
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Closed && m == nil, "uninit pool status should be .Closed and m should be nil")
 }
 
 @(test)
@@ -289,9 +297,28 @@ test_pool_get_status_oom :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// .Always on empty pool tries to allocate — fails
-	itm, status := pool_pkg.get(&p)
-	testing.expect(t, status == .Out_Of_Memory, "status should be .Out_Of_Memory")
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Out_Of_Memory && m == nil, "status should be .Out_Of_Memory and m should be nil")
+}
+
+@(test)
+test_pool_get_already_in_use :: proc(t: ^testing.T) {
+	p: pool_pkg.Pool(Test_Itm)
+	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){})
+	defer pool_pkg.destroy(&p)
+
+	m: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m)
+	testing.expect(t, m != nil, "first get should succeed")
+
+	// Call get again without clearing m.
+	status := pool_pkg.get(&p, &m)
+	testing.expect(t, status == .Already_In_Use, "get should return .Already_In_Use if m is not nil")
+
+	if m != nil {
+		free(m.?, (m.?).allocator)
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -352,13 +379,13 @@ test_pool_put_own_nil_return :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){})
 	defer pool_pkg.destroy(&p)
 
-	itm, _ := pool_pkg.get(&p) // get sets itm.allocator = p.allocator
-	testing.expect(t, itm != nil, "get should return non-nil")
-	if itm == nil {
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m) // get sets itm.allocator = p.allocator
+	testing.expect(t, status == .Ok && m != nil, "get should return non-nil")
+	if m == nil {
 		return
 	}
-	itm_opt: Maybe(^Test_Itm) = itm
-	ret, ok := pool_pkg.put(&p, &itm_opt)
+	ret, ok := pool_pkg.put(&p, &m)
 	testing.expect(t, ret == nil, "put of own item should return nil")
 	testing.expect(t, ok, "put of own item should return true")
 }
@@ -374,12 +401,13 @@ test_pool_reset_on_get_recycled :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, initial_msgs = 1, hooks = pool_pkg.T_Hooks(Test_Itm){ reset = _test_reset_bits })
 	defer pool_pkg.destroy(&p)
 
-	itm, _ := pool_pkg.get(&p) // recycled from free-list → reset(.Get) sets bit 0
-	testing.expect(t, itm != nil, "get should return non-nil")
-	if itm != nil {
-		testing.expect(t, itm.data & 1 != 0, "get-reset bit should be set (bit 0)")
-		testing.expect(t, itm.data & 2 == 0, "put-reset bit should NOT be set")
-		free(itm, itm.allocator)
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m) // recycled from free-list → reset(.Get) sets bit 0
+	testing.expect(t, status == .Ok && m != nil, "get should return non-nil")
+	if m != nil {
+		testing.expect(t, m.?.data & 1 != 0, "get-reset bit should be set (bit 0)")
+		testing.expect(t, m.?.data & 2 == 0, "put-reset bit should NOT be set")
+		free(m.?, m.?.allocator)
 	}
 }
 
@@ -389,15 +417,16 @@ test_pool_reset_not_on_fresh :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){ reset = _test_reset_bits }) // empty pool
 	defer pool_pkg.destroy(&p)
 
-	itm, _ := pool_pkg.get(&p) // fresh allocation — reset must NOT be called
-	testing.expect(t, itm != nil, "get should return non-nil")
-	if itm != nil {
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m) // fresh allocation — reset must NOT be called
+	testing.expect(t, status == .Ok && m != nil, "get should return non-nil")
+	if m != nil {
 		testing.expect(
 			t,
-			itm.data == 0,
+			m.?.data == 0,
 			"reset should NOT be called for fresh allocation (data must stay 0)",
 		)
-		free(itm, itm.allocator)
+		free(m.?, m.?.allocator)
 	}
 }
 
@@ -407,23 +436,24 @@ test_pool_reset_on_put :: proc(t: ^testing.T) {
 	pool_pkg.init(&p, hooks = pool_pkg.T_Hooks(Test_Itm){ reset = _test_reset_bits })
 	defer pool_pkg.destroy(&p)
 
-	itm, _ := pool_pkg.get(&p) // fresh alloc, no reset → data=0
-	testing.expect(t, itm != nil, "get should return non-nil")
-	if itm == nil {
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m) // fresh alloc, no reset → data=0
+	testing.expect(t, status == .Ok && m != nil, "get should return non-nil")
+	if m == nil {
 		return
 	}
-	itm.data = 0 // so we have a clean state
+	m.?.data = 0 // so we have a clean state
 
-	itm_opt: Maybe(^Test_Itm) = itm
-	ret, _ := pool_pkg.put(&p, &itm_opt) // reset(.Put) sets bit 1 → data=2, then recycled
+	ret, _ := pool_pkg.put(&p, &m) // reset(.Put) sets bit 1 → data=2, then recycled
 	testing.expect(t, ret == nil, "put should return nil for own item")
 
 	// Get the recycled item back to inspect data.
-	recycled, _ := pool_pkg.get(&p) // reset(.Get) sets bit 0 → data=3
-	testing.expect(t, recycled != nil, "should get the recycled item back")
+	recycled: Maybe(^Test_Itm)
+	status = pool_pkg.get(&p, &recycled) // reset(.Get) sets bit 0 → data=3
+	testing.expect(t, status == .Ok && recycled != nil, "should get the recycled item back")
 	if recycled != nil {
-		testing.expect(t, recycled.data & 2 != 0, "put-reset bit should be set (bit 1)")
-		free(recycled, recycled.allocator)
+		testing.expect(t, recycled.?.data & 2 != 0, "put-reset bit should be set (bit 1)")
+		free(recycled.?, recycled.?.allocator)
 	}
 }
 
@@ -438,8 +468,9 @@ test_pool_get_timeout_zero :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Empty pool, .Pool_Only, timeout=0 — must return immediately with .Pool_Empty.
-	itm, status := pool_pkg.get(&p, .Pool_Only, 0)
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only, 0)
+	testing.expect(t, m == nil, "itm should be nil")
 	testing.expect(t, status == .Pool_Empty, "status should be .Pool_Empty")
 }
 
@@ -462,14 +493,15 @@ test_pool_waker_wakes_on_put :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Non-blocking get on empty pool — sets empty_was_returned.
-	itm, status := pool_pkg.get(&p, .Pool_Only, 0)
-	testing.expect(t, itm == nil, "itm should be nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only, 0)
+	testing.expect(t, m == nil, "itm should be nil")
 	testing.expect(t, status == .Pool_Empty, "status should be .Pool_Empty")
 
 	// Put an item — pool transitions empty→non-empty, wake must fire.
-	new_itm, _ := pool_pkg.get(&p) // .Always — allocates fresh
-	new_itm_opt: Maybe(^Test_Itm) = new_itm
-	pool_pkg.put(&p, &new_itm_opt)
+	new_itm: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &new_itm) // .Always — allocates fresh
+	pool_pkg.put(&p, &new_itm)
 
 	got_wake := sync.sema_wait_with_timeout(&woke, time.Second)
 	testing.expect(t, got_wake, "waker.wake should be called when put fills an empty pool")
@@ -524,11 +556,11 @@ test_pool_length :: proc(t: ^testing.T) {
 
 	testing.expect(t, pool_pkg.length(&p) == 3, "length should be 3 after init with 3 pre-alloc")
 
-	itm, _ := pool_pkg.get(&p, .Pool_Only)
-	testing.expect(t, itm != nil, "get should return non-nil")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only)
+	testing.expect(t, status == .Ok && m != nil, "get should return non-nil")
 	testing.expect(t, pool_pkg.length(&p) == 2, "length should be 2 after one get")
 
-	itm_opt: Maybe(^Test_Itm) = itm
-	pool_pkg.put(&p, &itm_opt)
+	pool_pkg.put(&p, &m)
 	testing.expect(t, pool_pkg.length(&p) == 3, "length should be 3 after put back")
 }

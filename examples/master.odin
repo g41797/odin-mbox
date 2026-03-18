@@ -75,14 +75,14 @@ master_example :: proc() -> bool {
 	m_opt: Maybe(^Master) = m
 	defer master_dispose(&m_opt) // [itc: defer-dispose]
 
-	itm, _ := pool_pkg.get(&m.pool)
-	if itm == nil {
-		return false
-	}
-	itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
-
+	itm_opt: Maybe(^DisposableItm) // [itc: maybe-container]
 	// Idiom 4: defer-dispose handles cleanup on send failure
 	defer disposable_dispose(&itm_opt) // [itc: defer-dispose]
+
+	status := pool_pkg.get(&m.pool, &itm_opt)
+	if status != .Ok || itm_opt == nil {
+		return false
+	}
 
 	if !mbox.send(&m.inbox, &itm_opt) {
 		// send failed — return item to pool before defer-dispose fires

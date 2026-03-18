@@ -46,8 +46,9 @@ interrupt_example :: proc() -> bool {
 	// Start a thread that will wait forever.
 	t := thread.create_and_start_with_poly_data2(&m.mb, &err_result, proc(mb: ^mbox.Mailbox(Itm), res: ^mbox.Mailbox_Error) {
 		// [itc: thread-container] (mb is part of heap-master)
-		_, err := mbox.wait_receive(mb)
-		res^ = err
+		m_itm: Maybe(^Itm)
+		res^ = mbox.wait_receive(mb, &m_itm)
+		_itm_dispose(&m_itm)
 	})
 
 	// Give it a moment to start waiting.

@@ -23,10 +23,11 @@ Typical usage:
 	mb: mbox.Mailbox(My_Msg)
 
 	// sender thread:
-	mbox.send(&mb, msg)
+	mbox.send(&mb, &msg)
 
 	// receiver thread:
-	got, err := mbox.wait_receive(&mb)
+	got: Maybe(^My_Msg)
+	err := mbox.wait_receive(&mb, &got)
 
 */
 package mbox

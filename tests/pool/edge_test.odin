@@ -35,7 +35,7 @@ _N_Pool_Ctx :: struct {
 	started: ^sync.Sema,
 	done:    ^sync.Sema,
 	result:  pool_pkg.Pool_Status,
-	got:     ^Test_Itm,
+	got:     Maybe(^Test_Itm),
 }
 
 // _Stress_Ctx holds state for stress test threads.
@@ -76,8 +76,9 @@ test_pool_get_timeout_elapsed :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Empty pool, .Pool_Only, short timeout — nobody puts, should expire with .Pool_Empty.
-	itm, status := pool_pkg.get(&p, .Pool_Only, time.Millisecond)
-	testing.expect(t, itm == nil, "itm should be nil after timeout")
+	m: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &m, .Pool_Only, time.Millisecond)
+	testing.expect(t, m == nil, "itm should be nil after timeout")
 	testing.expect(t, status == .Pool_Empty, "status should be .Pool_Empty after timeout")
 }
 
@@ -88,15 +89,16 @@ test_pool_get_timeout_put_wakes :: proc(t: ^testing.T) {
 	defer pool_pkg.destroy(&p)
 
 	// Pre-allocate an item to put back from the second thread.
-	itm, _ := pool_pkg.get(&p)
-	testing.expect(t, itm != nil, "initial get should return non-nil")
-	if itm == nil {
+	m: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m)
+	testing.expect(t, m != nil, "initial get should return non-nil")
+	if m == nil {
 		return
 	}
 
 	ctx := _Put_Wakes_Ctx {
 		pool = &p,
-		itm  = itm,
+		itm  = m.?,
 	}
 
 	th := thread.create_and_start_with_data(
@@ -113,14 +115,15 @@ test_pool_get_timeout_put_wakes :: proc(t: ^testing.T) {
 
 	// Wait until the thread is running, then block on get with a long timeout.
 	sync.sema_wait(&ctx.ready)
-	got, status := pool_pkg.get(&p, .Pool_Only, time.Second)
+	got: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &got, .Pool_Only, time.Second)
 	thread.join(th)
 	thread.destroy(th)
 
 	testing.expect(t, got != nil, "get should return non-nil after put wakes it")
 	testing.expect(t, status == .Ok, "status should be .Ok")
 	if got != nil {
-		free(got, got.allocator)
+		free(got.?, (got.?).allocator)
 	}
 }
 
@@ -146,7 +149,8 @@ test_pool_get_timeout_destroy_wakes :: proc(t: ^testing.T) {
 
 	// Wait until the thread is running, then block on get with infinite timeout.
 	sync.sema_wait(&ctx.ready)
-	got, status := pool_pkg.get(&p, .Pool_Only, -1)
+	got: Maybe(^Test_Itm)
+	status := pool_pkg.get(&p, &got, .Pool_Only, -1)
 	thread.join(th)
 	thread.destroy(th)
 
@@ -179,7 +183,7 @@ test_pool_many_waiters_partial_fill :: proc(t: ^testing.T) {
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_N_Pool_Ctx)(data)
 			sync.sema_post(c.started)
-			c.got, c.result = pool_pkg.get(c.pool, .Pool_Only, 2 * time.Second)
+			c.result = pool_pkg.get(c.pool, &c.got, .Pool_Only, 2 * time.Second)
 			sync.sema_post(c.done)
 		})
 	}
@@ -190,15 +194,14 @@ test_pool_many_waiters_partial_fill :: proc(t: ^testing.T) {
 	}
 	time.sleep(20 * time.Millisecond)
 
-	// Pre-allocate 5 items (sets allocator field), then put them back.
-	// Each put wakes one waiting thread via cond_signal.
-	pre_itms: [5]^Test_Itm
-	for i in 0 ..< 5 {
-		pre_itms[i], _ = pool_pkg.get(&p)
-	}
-	for i in 0 ..< 5 {
-		pre_opt: Maybe(^Test_Itm) = pre_itms[i]
-		pool_pkg.put(&p, &pre_opt)
+	// Allocate 5 fresh items and put them directly into the pool.
+	// Using put (not get+put) avoids a race where the main thread's next get
+	// would steal the just-signalled item before a waiting thread can take it.
+	for _ in 0 ..< 5 {
+		itm := new(Test_Itm)
+		itm.allocator = context.allocator
+		m: Maybe(^Test_Itm) = itm
+		pool_pkg.put(&p, &m)
 	}
 
 	for _ in 0 ..< N {
@@ -216,7 +219,7 @@ test_pool_many_waiters_partial_fill :: proc(t: ^testing.T) {
 		case .Ok:
 			ok_count += 1
 			if ctxs[i].got != nil {
-				free(ctxs[i].got, ctxs[i].got.allocator)
+				free(ctxs[i].got.?, (ctxs[i].got.?).allocator)
 			}
 		case .Pool_Empty:
 			empty_count += 1
@@ -249,7 +252,7 @@ test_pool_destroy_wakes_all :: proc(t: ^testing.T) {
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_N_Pool_Ctx)(data)
 			sync.sema_post(c.started)
-			c.got, c.result = pool_pkg.get(c.pool, .Pool_Only, -1)
+			c.result = pool_pkg.get(c.pool, &c.got, .Pool_Only, -1)
 			sync.sema_post(c.done)
 		})
 	}
@@ -306,9 +309,9 @@ test_pool_stress_high_volume :: proc(t: ^testing.T) {
 			c := (^_Stress_Ctx)(data)
 			sync.sema_wait(c.start)
 			for _ in 0 ..< 1000 {
-				itm, _ := pool_pkg.get(c.pool)
-				itm_opt: Maybe(^Test_Itm) = itm
-				pool_pkg.put(c.pool, &itm_opt)
+				m: Maybe(^Test_Itm)
+				pool_pkg.get(c.pool, &m)
+				pool_pkg.put(c.pool, &m)
 			}
 			sync.sema_post(c.done)
 		})
@@ -352,10 +355,10 @@ test_pool_max_limit_racing :: proc(t: ^testing.T) {
 		threads[i] = thread.create_and_start_with_data(&ctxs[i], proc(data: rawptr) {
 			c := (^_Max_Race_Ctx)(data)
 			sync.sema_wait(c.start)
-			itm, _ := pool_pkg.get(c.pool)
-			if itm != nil {
-				itm_opt: Maybe(^Test_Itm) = itm
-				pool_pkg.put(c.pool, &itm_opt)
+			m: Maybe(^Test_Itm)
+			pool_pkg.get(c.pool, &m)
+			if m != nil {
+				pool_pkg.put(c.pool, &m)
 			}
 			sync.sema_post(c.done)
 		})
@@ -403,12 +406,12 @@ test_pool_shutdown_race :: proc(t: ^testing.T) {
 			c := (^_Shutdown_Ctx)(data)
 			sync.sema_wait(c.start)
 			for {
-				itm, status := pool_pkg.get(c.pool)
+				m: Maybe(^Test_Itm)
+				status := pool_pkg.get(c.pool, &m)
 				if status != .Ok {
 					break
 				}
-				itm_opt: Maybe(^Test_Itm) = itm
-				pool_pkg.put(c.pool, &itm_opt)
+				pool_pkg.put(c.pool, &m)
 			}
 			sync.sema_post(c.done)
 		})
@@ -486,24 +489,26 @@ test_pool_allocator_integrity :: proc(t: ^testing.T) {
 	testing.expect(t, data.count == 3, "init with 3 pre-alloc should consume 3 allocs")
 
 	// Drain pre-alloc items from pool — no new allocations.
-	itm1, _ := pool_pkg.get(&p, .Pool_Only)
-	itm2, _ := pool_pkg.get(&p, .Pool_Only)
-	itm3, _ := pool_pkg.get(&p, .Pool_Only)
+	m1, m2, m3: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m1, .Pool_Only)
+	pool_pkg.get(&p, &m2, .Pool_Only)
+	pool_pkg.get(&p, &m3, .Pool_Only)
 	testing.expect(t, data.count == 3, "draining pre-alloc should not increase alloc count")
 
 	// Pool is now empty. get(.Always) forces 2 new allocations.
-	itm4, _ := pool_pkg.get(&p)
-	itm5, _ := pool_pkg.get(&p)
+	m4, m5: Maybe(^Test_Itm)
+	pool_pkg.get(&p, &m4)
+	pool_pkg.get(&p, &m5)
 	testing.expect(t, data.count == 5, "2 fresh allocs should bring total to 5")
-	testing.expect(t, itm4 != nil, "itm4 should be non-nil")
-	testing.expect(t, itm5 != nil, "itm5 should be non-nil")
+	testing.expect(t, m4 != nil, "m4 should be non-nil")
+	testing.expect(t, m5 != nil, "m5 should be non-nil")
 
 	// Put all 5 back.
-	itm1_opt: Maybe(^Test_Itm) = itm1; pool_pkg.put(&p, &itm1_opt)
-	itm2_opt: Maybe(^Test_Itm) = itm2; pool_pkg.put(&p, &itm2_opt)
-	itm3_opt: Maybe(^Test_Itm) = itm3; pool_pkg.put(&p, &itm3_opt)
-	itm4_opt: Maybe(^Test_Itm) = itm4; pool_pkg.put(&p, &itm4_opt)
-	itm5_opt: Maybe(^Test_Itm) = itm5; pool_pkg.put(&p, &itm5_opt)
+	pool_pkg.put(&p, &m1)
+	pool_pkg.put(&p, &m2)
+	pool_pkg.put(&p, &m3)
+	pool_pkg.put(&p, &m4)
+	pool_pkg.put(&p, &m5)
 	testing.expect(t, p.curr_msgs == 5, "all 5 items should be in pool")
 
 	// destroy frees all 5 via the counting allocator.

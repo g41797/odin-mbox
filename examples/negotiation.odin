@@ -95,12 +95,10 @@ negotiation_example :: proc(kind: nbio_mbox.Nbio_Wakeuper_Kind = .UDP) -> bool {
 		}
 
 		// Worker allocated req; loop will send it back as reply.
-		reply, recv_err := mbox.wait_receive(&w.reply_mb)
+		reply: Maybe(^DisposableItm)
+		recv_err := mbox.wait_receive(&w.reply_mb, &reply)
 		w.ok = recv_err == .None && reply != nil
-		if reply != nil {
-			reply_opt: Maybe(^DisposableItm) = reply
-			disposable_dispose(&reply_opt) // [itc: dispose-optional]
-		}
+		disposable_dispose(&reply) // [itc: dispose-optional]
 	})
 
 	// Event loop: tick until request arrives, increment data, send back as reply.

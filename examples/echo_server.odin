@@ -15,6 +15,7 @@ Echo_Msg :: struct {
 // _echo_msg_dispose handles the embedded DisposableItm cleanup.
 // [itc: dispose-contract]
 _echo_msg_dispose :: proc(itm: ^Maybe(^Echo_Msg)) {
+	if itm == nil { return }
 	if itm^ == nil { return }
 	ptr := (itm^).?
 	base_opt: Maybe(^DisposableItm) = &ptr.base
@@ -122,20 +123,21 @@ echo_server_example :: proc() -> bool {
 				c := (^_Echo_Client)(data) // [itc: thread-container]
 
 				// Get a token (blocks if all tokens are in flight — backpressure).
-				itm, status := pool_pkg.get(&c.server.pool, .Pool_Only, -1)
-				if status != .Ok || itm == nil {
+				itm_opt: Maybe(^Echo_Msg)
+				status := pool_pkg.get(&c.server.pool, &itm_opt, .Pool_Only, -1)
+				if status != .Ok || itm_opt == nil {
 					return
 				}
 
+				itm := itm_opt.?
 				itm.base.data = c.my_id
 				itm.reply_to = &c.inbox
 
 				// Push to server queue and wake the server.
-				m: Maybe(^Echo_Msg) = itm // [itc: maybe-container]
-				if !mpsc.push(&c.server.q, &m) {
+				if !mpsc.push(&c.server.q, &itm_opt) {
 					// push failed — return token to pool
 					defer { // [itc: defer-put]
-						ptr, accepted := pool_pkg.put(&c.server.pool, &m)
+						ptr, accepted := pool_pkg.put(&c.server.pool, &itm_opt)
 						if !accepted && ptr != nil {
 							p_opt: Maybe(^Echo_Msg) = ptr
 							_echo_msg_dispose(&p_opt) // [itc: foreign-dispose]
@@ -146,14 +148,14 @@ echo_server_example :: proc() -> bool {
 				sync.sema_post(&c.server.sema)
 
 				// Wait for the echo reply.
-				reply, err := mbox.wait_receive(&c.inbox)
-				if err != .None || reply == nil {
+				reply_opt: Maybe(^Echo_Msg)
+				err := mbox.wait_receive(&c.inbox, &reply_opt)
+				if err != .None || reply_opt == nil {
 					return
 				}
-				c.ok = reply.base.data == c.my_id
+				c.ok = (reply_opt.?).base.data == c.my_id
 
 				// Return the token to the pool.
-				reply_opt: Maybe(^Echo_Msg) = reply // [itc: maybe-container]
 				defer { // [itc: defer-put]
 					ptr, accepted := pool_pkg.put(&c.server.pool, &reply_opt)
 					if !accepted && ptr != nil {

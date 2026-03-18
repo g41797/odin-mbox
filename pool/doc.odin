@@ -30,12 +30,13 @@ Idiom reference: design/idioms.md
 
 Status returns:
 - init returns (bool, Pool_Status): (true, .Ok) on success; (false, .Out_Of_Memory) on pre-allocation failure.
-- get returns (^T, Pool_Status): .Ok, .Pool_Empty, .Out_Of_Memory, or .Closed.
+- get returns Pool_Status: .Ok, .Already_In_Use, .Pool_Empty, .Out_Of_Memory, or .Closed.
+  On success (.Ok), the item is stored in the caller-provided ^Maybe(^T) variable.
   With .Pool_Only strategy and timeout parameter:
   - timeout==0 (default): return immediately if empty (.Pool_Empty). Non-blocking.
   - timeout<0: wait forever until put or destroy.
-  - timeout>0: wait up to that duration; returns (nil, .Pool_Empty) on expiry.
-  - Returns (nil, .Closed) if pool is destroyed while waiting.
+  - timeout>0: wait up to that duration; returns .Pool_Empty on expiry.
+  - Returns .Closed if pool is destroyed while waiting.
 - put returns ^T: nil if recycled or freed. Returns the original pointer if the item is foreign (itm.allocator != pool allocator) — caller must free or dispose it.
 
 Lifecycle:

@@ -71,13 +71,12 @@ stress_example :: proc() -> bool {
 			c := (^_Stress_Consumer)(data) // [itc: thread-container]
 			count := 0
 			for count < N {
-				itm, err := mbox.wait_receive(&c.inbox)
+				itm_opt: Maybe(^DisposableItm)
+				err := mbox.wait_receive(&c.inbox, &itm_opt)
 				if err == .Closed {
 					break
 				}
 				if err == .None {
-					itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
-
 					// Demonstrating Idiom 2: defer-put with Idiom 6: foreign-dispose
 					defer { // [itc: defer-put]
 						ptr, accepted := pool_pkg.put(&c.pool, &itm_opt)
@@ -103,13 +102,12 @@ stress_example :: proc() -> bool {
 			proc(data: rawptr) {
 				c := (^_Stress_Consumer)(data) // [itc: thread-container]
 				for _ in 0 ..< N / P {
-					itm, _ := pool_pkg.get(&c.pool)
-					if itm != nil {
-						itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
+					itm_opt: Maybe(^DisposableItm) // [itc: maybe-container]
+					// Idiom 4: defer-dispose handles cleanup on send failure
+					defer disposable_dispose(&itm_opt) // [itc: defer-dispose]
 
-						// Idiom 4: defer-dispose handles cleanup on send failure
-						defer disposable_dispose(&itm_opt) // [itc: defer-dispose]
-
+					status := pool_pkg.get(&c.pool, &itm_opt)
+					if status == .Ok && itm_opt != nil {
 						if !mbox.send(&c.inbox, &itm_opt) {
 							// itm_opt still non-nil on failure, handled by defer
 						}

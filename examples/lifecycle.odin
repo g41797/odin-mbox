@@ -42,9 +42,11 @@ lifecycle_example :: proc() -> bool {
 	// 2. Interrupt — no item yet, so the waiter gets .Interrupted.
 	// Wakes the next waiter with .Interrupted.
 	mbox.interrupt(&m.mb)
-	_, err := mbox.wait_receive(&m.mb)
+	m_itm: Maybe(^Itm)
+	err := mbox.wait_receive(&m.mb, &m_itm)
 	if err != .Interrupted {
 		_itm_dispose(&itm)
+		_itm_dispose(&m_itm)
 		return false
 	}
 

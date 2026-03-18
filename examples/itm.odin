@@ -16,6 +16,7 @@ Itm :: struct {
 // _itm_dispose is an internal helper for simple Itm cleanup that follows the contract.
 // [itc: dispose-contract]
 _itm_dispose :: proc(itm: ^Maybe(^Itm)) {
+	if itm == nil { return }
 	if itm^ == nil { return }
 	ptr := (itm^).?
 	free(ptr, ptr.allocator)
@@ -46,6 +47,7 @@ disposable_reset :: proc(itm: ^DisposableItm, _: pool_pkg.Pool_Event) {
 // Caller uses this for permanent cleanup. Pool calls it via T_Hooks.dispose.
 // [itc: dispose-contract]
 disposable_dispose :: proc(itm: ^Maybe(^DisposableItm)) {
+	if itm == nil {return}
 	if itm^ == nil {return}
 	ptr := (itm^).?
 	if ptr.name != "" {

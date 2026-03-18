@@ -21,6 +21,7 @@ Mailbox_Error :: enum {
 	Timeout,
 	Closed,
 	Interrupted,
+	Already_In_Use, // caller-provided msg^ != nil
 }
 
 // Mailbox is for worker threads. It blocks using a condition variable.
@@ -40,6 +41,9 @@ Mailbox :: struct($T: typeid) {
 // success: msg^ = nil, returns true.
 send :: proc(m: ^Mailbox($T), msg: ^Maybe(^T)) -> bool where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") == list.Node {
+	if msg == nil {
+		return false
+	}
 	if msg^ == nil {
 		return false
 	}
@@ -57,33 +61,46 @@ send :: proc(m: ^Mailbox($T), msg: ^Maybe(^T)) -> bool where intrinsics.type_has
 }
 
 // wait_receive blocks until a message arrives, the mailbox closes, or timeout.
+// .Already_In_Use: msg^ != nil — caller still holds an item, release first.
+// .Closed: mailbox is closed and drained.
+// .Timeout: no message arrived within timeout.
+// .Interrupted: wait was interrupted.
 // Use timeout < 0 for infinite wait.
 wait_receive :: proc(
 	m: ^Mailbox($T),
+	msg: ^Maybe(^T),
 	timeout: time.Duration = -1,
-) -> (
-	msg: ^T,
-	err: Mailbox_Error,
-) where intrinsics.type_has_field(T, "node"),
+) -> Mailbox_Error where intrinsics.type_has_field(T, "node"),
 	intrinsics.type_field_type(T, "node") ==
 	list.Node {
+	if msg == nil {
+		return .Already_In_Use
+	}
+	if msg^ != nil {
+		return .Already_In_Use
+	}
+
 	sync.mutex_lock(&m.mutex)
-	defer sync.mutex_unlock(&m.mutex)
 
 	if m.len > 0 {
-		msg = _pop(m)
+		res := _pop(m)
+		sync.mutex_unlock(&m.mutex)
 		sync.cond_signal(&m.cond)
-		return msg, .None
+		msg^ = res
+		return .None
 	}
 	if m.closed {
-		return nil, .Closed
+		sync.mutex_unlock(&m.mutex)
+		return .Closed
 	}
 	if m.interrupted {
 		m.interrupted = false
-		return nil, .Interrupted
+		sync.mutex_unlock(&m.mutex)
+		return .Interrupted
 	}
 	if timeout == 0 {
-		return nil, .Timeout
+		sync.mutex_unlock(&m.mutex)
+		return .Timeout
 	}
 
 	for m.len == 0 {
@@ -95,20 +112,25 @@ wait_receive :: proc(
 			ok = sync.cond_wait_with_timeout(&m.cond, &m.mutex, timeout)
 		}
 		if m.closed {
-			return nil, .Closed
+			sync.mutex_unlock(&m.mutex)
+			return .Closed
 		}
 		if m.interrupted {
 			m.interrupted = false
-			return nil, .Interrupted
+			sync.mutex_unlock(&m.mutex)
+			return .Interrupted
 		}
 		if !ok {
-			return nil, .Timeout
+			sync.mutex_unlock(&m.mutex)
+			return .Timeout
 		}
 	}
 
-	msg = _pop(m)
+	res := _pop(m)
+	sync.mutex_unlock(&m.mutex)
 	sync.cond_signal(&m.cond)
-	return msg, .None
+	msg^ = res
+	return .None
 }
 
 // interrupt wakes one waiting thread. It returns false if already interrupted or closed.

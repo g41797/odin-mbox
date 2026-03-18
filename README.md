@@ -130,8 +130,12 @@ msg.?.data = 42
 mbox.send(&mb, &msg) // msg = nil after this — mailbox owns it
 
 // receiver thread:
-got, err := mbox.wait_receive(&mb, 100 * time.Millisecond)
-if got != nil { free(got) }
+got: Maybe(^My_Msg)
+err := mbox.wait_receive(&mb, &got, 100 * time.Millisecond)
+if err == .None {
+    // use got.?
+    free(got.?)
+}
 ```
 
 ### Interrupt a Waiter
@@ -264,19 +268,22 @@ if ok, _ := pool_pkg.init(&p, initial_msgs = 64, max_msgs = 256, hooks = pool_pk
 
 // Sender: get from pool, fill, send.
 // .Always (default): allocates new if pool empty.
-itm, _ := pool_pkg.get(&p)
-itm.data = 42
-itm_opt: Maybe(^My_Itm) = itm
-mbox.send(&mb, &itm_opt) // itm_opt = nil after this
+itm: Maybe(^My_Itm)
+status := pool_pkg.get(&p, &itm)
+if status == .Ok {
+    itm.?.data = 42
+    mbox.send(&mb, &itm) // itm = nil after this
+}
 
 // .Pool_Only + timeout: wait up to 100 ms for a recycled item.
-itm2, status := pool_pkg.get(&p, .Pool_Only, 100 * time.Millisecond)
+itm2: Maybe(^My_Itm)
+status = pool_pkg.get(&p, &itm2, .Pool_Only, 100 * time.Millisecond)
 
 // Receiver: receive, use, return to pool.
-got, err := mbox.wait_receive(&mb)
+got: Maybe(^My_Itm)
+err := mbox.wait_receive(&mb, &got)
 if err == .None {
-    got_opt: Maybe(^My_Itm) = got
-    pool_pkg.put(&p, &got_opt) // got_opt = nil after this
+    pool_pkg.put(&p, &got) // got = nil after this
 }
 
 // Cleanup:

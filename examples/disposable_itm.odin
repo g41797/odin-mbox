@@ -75,13 +75,13 @@ disposable_itm_example :: proc() -> bool {
 
 	// Consumer thread: receives one item, checks the name, puts back to pool.
 	t := thread.create_and_start_with_poly_data(m, proc(m: ^_Disposable_Master) { // [itc: thread-container]
-		itm, err := mbox.wait_receive(&m.mb)
-		if err != .None || itm == nil {
+		itm_opt: Maybe(^DisposableItm)
+		err := mbox.wait_receive(&m.mb, &itm_opt)
+		if err != .None || itm_opt == nil {
 			return
 		}
 
 		// Demonstrating Idiom 2: defer-put with Idiom 6: foreign-dispose
-		itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
 		defer { // [itc: defer-put]
 			ptr, accepted := pool_pkg.put(&m.pool, &itm_opt)
 			if !accepted && ptr != nil {
@@ -91,19 +91,19 @@ disposable_itm_example :: proc() -> bool {
 		}
 
 		// process: name is set
-		_ = itm.name
+		_ = (itm_opt.?).name
 	})
 
 	// Producer: get from pool, fill resources, send.
-	itm, status := pool_pkg.get(&m.pool)
+	itm_opt: Maybe(^DisposableItm) // [itc: maybe-container]
+	defer disposable_dispose(&itm_opt) // no-op if send succeeded // [itc: defer-dispose]
+
+	status := pool_pkg.get(&m.pool, &itm_opt)
 	if status != .Ok {
 		thread.join(t)
 		thread.destroy(t)
 		return false
 	}
-
-	itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
-	defer disposable_dispose(&itm_opt) // no-op if send succeeded // [itc: defer-dispose]
 
 	itm_opt.?.name = strings.clone("hello", itm_opt.?.allocator)
 	if mbox.send(&m.mb, &itm_opt) {

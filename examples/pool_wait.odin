@@ -75,13 +75,12 @@ pool_wait_example :: proc() -> bool {
 			total :: N_PLAYERS * ROUNDS
 			count := 0
 			for count < total {
-				itm, err := mbox.wait_receive(&c.inbox)
+				itm_opt: Maybe(^DisposableItm)
+				err := mbox.wait_receive(&c.inbox, &itm_opt)
 				if err == .Closed {
 					break
 				}
 				if err == .None {
-					itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
-
 					// Demonstrating Idiom 2: defer-put with Idiom 6: foreign-dispose
 					defer { // [itc: defer-put]
 						ptr, accepted := pool_pkg.put(&c.pool, &itm_opt)
@@ -108,14 +107,14 @@ pool_wait_example :: proc() -> bool {
 			proc(data: rawptr) {
 				c := (^_Pool_Wait_Collector)(data) // [itc: thread-container]
 				for _ in 0 ..< ROUNDS {
-					itm, status := pool_pkg.get(&c.pool, .Pool_Only, -1)
+					itm_opt: Maybe(^DisposableItm) // [itc: maybe-container]
+					// Idiom 4: defer-dispose handles cleanup on send failure
+					defer disposable_dispose(&itm_opt) // [itc: defer-dispose]
+
+					status := pool_pkg.get(&c.pool, &itm_opt, .Pool_Only, -1)
 					if status == .Closed {
 						break
 					}
-					itm_opt: Maybe(^DisposableItm) = itm // [itc: maybe-container]
-
-					// Idiom 4: defer-dispose handles cleanup on send failure
-					defer disposable_dispose(&itm_opt) // [itc: defer-dispose]
 
 					if !mbox.send(&c.inbox, &itm_opt) {
 						// handled by defer

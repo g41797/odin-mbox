@@ -92,7 +92,7 @@ User writes:
 - factory — allocates correct concrete type per id, stamps `node.id`
 - reset — clears state for reuse per id
 - dispose — frees internal resources per id
-- flow_send — wraps `^Maybe(^T)` → `^Maybe(^PolyNode)`, calls `mbox.send`
+- flow_send — wraps `^Maybe(^T)` → `^Maybe(^PolyNode)`, calls `mbox_send`
 - flow_receive — calls `mbox.wait_receive`, switches on `node.id`, casts to `FlowMsg`
 
 itc provides the pipe. User provides the protocol.
@@ -142,7 +142,7 @@ FLOW_HOOKS :: Pool_Hooks{
 hooks := FLOW_HOOKS
 hooks.ctx = &master                  // runtime — ctx points to Master or any user state
 
-pool.init(&p,
+pool_init(&p,
     hooks = hooks,
     ids   = {int(FlowId.Chunk), int(FlowId.Progress)},
 )
@@ -165,7 +165,7 @@ Mode is a per-call parameter of `get`. Not a pool policy.
 
 ```odin
 m: Maybe(^PolyNode)
-pool.get(&p, &m, int(FlowId.Chunk), .Always)
+pool_get(&p, &m, int(FlowId.Chunk), .Always)
 ```
 
 Runtime check on entry: `id` must be in `pool.ids` — error if not.
@@ -183,10 +183,10 @@ pool.put(&p, &m)
 
 Checks `m.?.node.id` — must be in `pool.ids`.
 Checks allocator via `hooks.ctx` — item allocator must match.
-Either mismatch → foreign item → returned to caller → caller calls `pool.dispose`.
+Either mismatch → foreign item → returned to caller → caller calls `pool_dispose`.
 Both match → calls `accept(ctx, id, current_count)` outside lock:
 - `accept` returns true → reset via hooks, return to free list
-- `accept` returns false → treat as foreign — returned to caller → caller calls `pool.dispose`
+- `accept` returns false → treat as foreign — returned to caller → caller calls `pool_dispose`
 - `accept` is nil → always recycle (default behavior)
 
 ### Pool_Hooks
@@ -253,7 +253,7 @@ flow_accept :: proc(ctx: rawptr, id: int, current_count: int) -> bool {
     return false
 }
 // For byte-level limits (e.g. 400MB total): user maintains a byte counter
-// in ctx, calls pool.dispose manually instead of pool.put when limit exceeded.
+// in ctx, calls pool_dispose manually instead of pool.put when limit exceeded.
 ```
 
 ---
@@ -279,15 +279,15 @@ Mailbox :: struct {
 ```odin
 // acquire
 m: Maybe(^PolyNode)
-pool.get(&p, &m, int(FlowId.Chunk), .Always)
-defer pool.dispose(&p, &m)         // [itc: defer-dispose] no-op if sent
+pool_get(&p, &m, int(FlowId.Chunk), .Always)
+defer pool_dispose(&p, &m)         // [itc: defer-dispose] no-op if sent
 
 // fill — cast to concrete type
 c := (^Chunk)(m.?)
 c.len = fill(c.data[:])
 
 // send — m^ = nil on success, dispose is no-op
-mbox.send(&mb, &m)
+mbox_send(&mb, &m)
 ```
 
 ### Receiver side
@@ -295,7 +295,7 @@ mbox.send(&mb, &m)
 ```odin
 m: Maybe(^PolyNode)
 mbox.wait_receive(&mb, &m)
-defer pool.dispose(&p, &m)         // [itc: defer-dispose] safety net — fires if put not reached
+defer pool_dispose(&p, &m)         // [itc: defer-dispose] safety net — fires if put not reached
 
 switch FlowId(m.?.id) {
 case .Chunk:
@@ -319,12 +319,12 @@ Receiver switch is user code. itc delivers `^PolyNode` and the `id`. User casts,
 
 | Event | Rule |
 |---|---|
-| after `pool.get` | caller owns via `Maybe(^PolyNode)` — inner non-nil |
+| after `pool_get` | caller owns via `Maybe(^PolyNode)` — inner non-nil |
 | after `send` success | `m^` = nil — transfer complete |
 | after `send` failure | `m^` unchanged — caller still holds, dispose runs |
 | after `wait_receive` | receiver owns via `Maybe(^PolyNode)` — inner non-nil |
 | after `pool.put` success | `m^` = nil — returned to pool |
-| after `pool.put` foreign | `m^` returned to caller — caller calls `pool.dispose` |
+| after `pool.put` foreign | `m^` returned to caller — caller calls `pool_dispose` |
 | `defer-dispose` | no-op if transferred or put, frees if stuck |
 
 ---
@@ -333,7 +333,7 @@ Receiver switch is user code. itc delivers `^PolyNode` and the `id`. User casts,
 
 | Location | Check | On failure |
 |---|---|---|
-| `pool.get` | id in pool.ids | error |
+| `pool_get` | id in pool.ids | error |
 | `pool.put` | id in pool.ids | foreign — return to caller |
 | `pool.put` | allocator matches | foreign — return to caller |
 | receiver switch | id known to user | default case — dispose |
@@ -361,10 +361,10 @@ User is responsible for correctness of casts and switch coverage.
 - all hooks implementations — factory / reset / dispose / accept
 - hooks locking — user is responsible for any synchronization inside hooks
 - count limits per id — expressed in `accept`
-- byte-level limits — user responsibility, via manual `pool.dispose` instead of `pool.put`
+- byte-level limits — user responsibility, via manual `pool_dispose` instead of `pool.put`
 - flow_send / flow_receive wrappers
 - receiver switch and casting
-- **must return every item to pool** — via `pool.put`, `pool.dispose`, or `mbox.send`
+- **must return every item to pool** — via `pool.put`, `pool_dispose`, or `mbox_send`
 
 ---
 
@@ -372,7 +372,7 @@ User is responsible for correctness of casts and switch coverage.
 
 ### Rule 1 — one variable, whole lifetime
 
-One `Maybe(^PolyNode)` variable from `pool.get` to final disposition. Never copy the inner pointer into a second `Maybe`. Same variable through get → send → receive → put → dispose.
+One `Maybe(^PolyNode)` variable from `pool_get` to final disposition. Never copy the inner pointer into a second `Maybe`. Same variable through get → send → receive → put → dispose.
 
 ### Rule 2 — every item must be returned
 
@@ -382,8 +382,8 @@ Three valid endings:
 
 ```
 pool.put(&p, &m)       // recycle — normal path after processing
-pool.dispose(&p, &m)   // destroy — shutdown, foreign, or byte limit exceeded
-mbox.send(&mb, &m)     // transfer — receiver will put or dispose
+pool_dispose(&p, &m)   // destroy — shutdown, foreign, or byte limit exceeded
+mbox_send(&mb, &m)     // transfer — receiver will put or dispose
 ```
 
 There is no fourth option. A forgotten item starves the pool silently over time.
@@ -397,15 +397,15 @@ Every case branch of the receiver switch must end with one of these three. No ex
 ### Backpressure
 
 Signal travels on a separate `WakeUper` — pure wake, no value, no data.
-Producer checks the backpressure channel before each `pool.get` and decides which `id` to request.
+Producer checks the backpressure channel before each `pool_get` and decides which `id` to request.
 Receiver controls the signal — it knows when it is falling behind.
 
 ```
-normal:       pool.get(.Chunk, .Always)    → fill → send
-backpressure: WakeUper fires              → pool.get(.Progress, .Always) or skip
+normal:       pool_get(.Chunk, .Always)    → fill → send
+backpressure: WakeUper fires              → pool_get(.Progress, .Always) or skip
 ```
 
-This closes the loop on `id` selection — the `id` passed to `pool.get` changes based on the `WakeUper` signal. No changes to pool or mailbox needed. itc provides the mechanism. User decides the policy.
+This closes the loop on `id` selection — the `id` passed to `pool_get` changes based on the `WakeUper` signal. No changes to pool or mailbox needed. itc provides the mechanism. User decides the policy.
 
 ---
 
@@ -465,4 +465,4 @@ flow_accept :: proc(ctx: rawptr, id: int, current_count: int) -> bool {
 
 nil `accept` = always recycle. Default behavior, no limits.
 
-**Byte-level limits**: pool cannot express these — it is type-erased and does not know item sizes. User maintains a byte counter in `ctx` and calls `pool.dispose` manually instead of `pool.put` when the limit is exceeded.
+**Byte-level limits**: pool cannot express these — it is type-erased and does not know item sizes. User maintains a byte counter in `ctx` and calls `pool_dispose` manually instead of `pool.put` when the limit is exceeded.

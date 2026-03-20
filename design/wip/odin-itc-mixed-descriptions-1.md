@@ -203,7 +203,7 @@ When sending an Item:
 * you pass a pointer to your pointer
 
 ```
-mbox.send(&m)
+mbox_send(&m)
 ```
 
 Results:

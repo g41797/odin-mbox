@@ -229,7 +229,7 @@ holds a pointer that might be nil.
 When sending an item:
 
 ```
-mbox.send(&m)
+mbox_send(&m)
 ```
 
 If send succeeds:
@@ -260,11 +260,11 @@ This prevents:
 Typical send flow:
 
 ```
-itm, _ := pool.get(&p)
+itm, _ := pool_get(&p)
 
 m: Maybe(^Job) = itm
 
-mbox.send(&outbox, &m)
+mbox_send(&outbox, &m)
 ```
 
 Receiver:
@@ -501,7 +501,7 @@ Ownership is transferred explicitly using:
 When an item is sent:
 
 ```
-mbox.send(&m)
+mbox_send(&m)
 ```
 
 If the send succeeds, the pointer inside `m` becomes `nil`.
@@ -970,7 +970,7 @@ m: Maybe(^Job)
 When sending:
 
 ```
-mbox.send(&m)
+mbox_send(&m)
 ```
 
 If the send succeeds:
@@ -1009,11 +1009,11 @@ pool → master → mailbox → master → pool
 Example:
 
 ```
-itm, _ := pool.get(&p)
+itm, _ := pool_get(&p)
 
 m: Maybe(^Job) = itm
 
-mbox.send(&outbox, &m)
+mbox_send(&outbox, &m)
 ```
 
 Receiver:

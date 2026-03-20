@@ -49,7 +49,7 @@ Each thread may have one event loop.
 ```
 Example:
 	mb: mbox.Mailbox(My_Msg)
-	mbox.send(&mb, &msg)
+	mbox_send(&mb, &msg)
 ```
 
 ### Link

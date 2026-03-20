@@ -16,8 +16,8 @@ Itm :: struct {
 // _itm_dispose is an internal helper for simple Itm cleanup that follows the contract.
 // [itc: dispose-contract]
 _itm_dispose :: proc(itm: ^Maybe(^Itm)) {
-	if itm == nil { return }
-	if itm^ == nil { return }
+	if itm == nil {return}
+	if itm^ == nil {return}
 	ptr := (itm^).?
 	free(ptr, ptr.allocator)
 	itm^ = nil
@@ -29,7 +29,7 @@ _itm_dispose :: proc(itm: ^Maybe(^Itm)) {
 DisposableItm :: struct {
 	node:      list.Node,
 	allocator: mem.Allocator,
-	data:      int,    // Common field for payload
+	data:      int, // Common field for payload
 	name:      string, // heap-allocated — must be freed before the struct
 }
 
@@ -68,8 +68,8 @@ disposable_factory :: proc(allocator: mem.Allocator) -> (^DisposableItm, bool) {
 }
 
 // DISPOSABLE_ITM_HOOKS is the compile-time hook table for DisposableItm.
-// Pass it to pool.init for any pool that holds DisposableItm values.
-DISPOSABLE_ITM_HOOKS :: pool_pkg.T_Hooks(DisposableItm){
+// Pass it to pool_init for any pool that holds DisposableItm values.
+DISPOSABLE_ITM_HOOKS :: pool_pkg.T_Hooks(DisposableItm) {
 	factory = disposable_factory,
 	reset   = disposable_reset,
 	dispose = disposable_dispose,

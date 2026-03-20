@@ -180,7 +180,7 @@ No type knowledge inside ITC.
 
 | Event            | Meaning               |
 | ---------------- | --------------------- |
-| pool.get         | caller owns item      |
+| pool_get         | caller owns item      |
 | send success     | ownership transferred |
 | send fail        | caller still owns     |
 | receive          | receiver owns         |

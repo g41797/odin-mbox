@@ -101,7 +101,7 @@ Pool_Message    :: Pool(Message)
 ## Usage
 
 ```odin
-msg := pool.get(&msg_pool)
+msg := pool_get(&msg_pool)
 
 msg.kind = .Chunk
 msg.chunk = Chunk_Data{...}

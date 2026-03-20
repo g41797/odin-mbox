@@ -25,7 +25,7 @@ mb: mbox.Mailbox(Msg)
 // sender thread:
 msg: Maybe(^Msg) = new(Msg)
 msg.?.data = 42
-mbox.send(&mb, &msg)
+mbox_send(&mb, &msg)
 
 // receiver thread (blocks until message arrives):
 got: Maybe(^Msg)

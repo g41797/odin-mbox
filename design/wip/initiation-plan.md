@@ -238,7 +238,7 @@ From your current repo/docs:
 Demo uses only:
 - mailbox.send
 - mailbox.recv
-- pool.get
+- pool_get
 - pool.put
 ```
 

@@ -4,7 +4,7 @@ This document shows how to build a simple multi-threaded process using `odin-itc
 
 The goal is not to demonstrate APIs, but to show a different way of thinking:
 
-> Developers stop reasoning about locks and start reasoning about  
+> Developers stop reasoning about locks and start reasoning about
 > **data flow, ownership, and lifecycle**
 
 ---
@@ -169,15 +169,15 @@ From the outside, the system behaves like this:
 
 ```text
 Main reads file
-  → pool.get(id=Chunk, mode=Always)
+  → pool_get(id=Chunk, mode=Always)
   → fill Chunk
-  → mbox.send
+  → mbox_send
 
 Worker receives ^PolyNode
   → switch poly.id
   → case Chunk: cast, process
-      → pool.get(id=Progress) → send progress
-      → pool.get(id=CompressedChunk) → send result
+      → pool_get(id=Progress) → send progress
+      → pool_get(id=CompressedChunk) → send result
   → pool.put
 
 Main receives ^PolyNode
@@ -202,15 +202,15 @@ When sending:
 
 ```odin
 m: Maybe(^PolyNode)
-pool.get(&p, &m, int(FlowId.Chunk), .Always)
-defer pool.dispose(&p, &m)     // no-op if sent, frees if stuck
+pool_get(&p, &m, int(FlowId.Chunk), .Always)
+defer pool_dispose(&p, &m)     // no-op if sent, frees if stuck
 
 // fill item ...
 c := (^Chunk)(m.?)
 c.file_id = file_id
 c.offset  = offset
 
-mbox.send(&mb, &m)
+mbox_send(&mb, &m)
 // success → m^ = nil — sender no longer holds it
 // failure → m^ unchanged — dispose fires on exit
 ```
@@ -231,17 +231,17 @@ This guarantees:
 All items follow:
 
 ```text
-pool.get(id, mode) → factory(ctx, id) → item stamped with id
+pool_get(id, mode) → factory(ctx, id) → item stamped with id
      ↓
 fill item
      ↓
-mbox.send → ownership transfers
+mbox_send → ownership transfers
      ↓
 mbox.wait_receive → switch poly.id → process
      ↓
 pool.put → reset(ctx, node) → back to free list
      ↓
-on shutdown: mbox.close → returns list → pool.dispose each
+on shutdown: mbox.close → returns list → pool_dispose each
 ```
 
 Pool hooks carry `ctx` — user context passed to every hook call:
@@ -331,7 +331,7 @@ On the receiver side:
 ```odin
 m: Maybe(^PolyNode)
 mbox.wait_receive(&mb, &m)
-defer pool.dispose(&p, &m)     // safety net
+defer pool_dispose(&p, &m)     // safety net
 
 switch FlowId(m.?.id) {
 case .Chunk:

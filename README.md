@@ -127,7 +127,7 @@ They are just small tips to show you the game...
 // sender thread:
 msg: Maybe(^My_Msg) = new(My_Msg)
 msg.?.data = 42
-mbox.send(&mb, &msg) // msg = nil after this — mailbox owns it
+mbox_send(&mb, &msg) // msg = nil after this — mailbox owns it
 
 // receiver thread:
 got: Maybe(^My_Msg)
@@ -220,7 +220,7 @@ mbox.interrupt(&mb)
 
 // 3. Send the message.
 // The mailbox now owns the reference. m = nil after this.
-mbox.send(&mb, &m)
+mbox_send(&mb, &m)
 
 // 4. Shutdown.
 // close() hands back all references to you.
@@ -272,7 +272,7 @@ itm: Maybe(^My_Itm)
 status := pool_pkg.get(&p, &itm)
 if status == .Ok {
     itm.?.data = 42
-    mbox.send(&mb, &itm) // itm = nil after this
+    mbox_send(&mb, &itm) // itm = nil after this
 }
 
 // .Pool_Only + timeout: wait up to 100 ms for a recycled item.

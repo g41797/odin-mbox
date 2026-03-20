@@ -15,12 +15,12 @@ These idioms focus on the safe transfer of ownership and the management of an ob
 | `dispose-optional`| dispose is advice | dispose is called by the caller, never by pool or mailbox. |
 
 ### `maybe-container` — Maybe as container
-**Problem**: You have a `^T` from `new` or `pool.get`. You want to pass it to `send` or `push` safely.
+**Problem**: You have a `^T` from `new` or `pool_get`. You want to pass it to `send` or `push` safely.
 **Fix**: Wrap it in `Maybe(^T)` before any pointer-transferring call.
 ```odin
 // [itc: maybe-container]
 m: Maybe(^Itm) = new(Itm)
-mbox.send(&mb, &m)
+mbox_send(&mb, &m)
 // m is nil here — transfer complete, mailbox holds the pointer
 ```
 
@@ -35,7 +35,7 @@ mbox.send(&mb, &m)
 m: Maybe(^DisposableItm) = itm
 defer disposable_dispose(&m)  // [itc: defer-dispose]
 // ...
-if mbox.send(&mb, &m) { /* success */ }
+if mbox_send(&mb, &m) { /* success */ }
 // If send fails, `m` is not nil, and the deferred dispose runs.
 // If send succeeds, `m` is nil, and the deferred dispose is a no-op.
 ```
@@ -55,7 +55,7 @@ if mbox.send(&mb, &m) { /* success */ }
 
 ### `defer-put` — defer with pool.put
 **Problem**: You `get` an item from the pool and must return it in all paths.
-**Fix**: Use `defer pool.put` immediately after acquisition. If the item is successfully transferred elsewhere (e.g., via `mbox.send`), its `Maybe` container becomes `nil` and the `put` becomes a no-op.
+**Fix**: Use `defer pool.put` immediately after acquisition. If the item is successfully transferred elsewhere (e.g., via `mbox_send`), its `Maybe` container becomes `nil` and the `put` becomes a no-op.
 
 ### `reset-vs-dispose` — reset vs dispose
 **Problem**: It is easy to confuse `reset` (for reuse) with `dispose` (for permanent cleanup).
@@ -65,4 +65,4 @@ if mbox.send(&mb, &m) { /* success */ }
 
 ### `t-hooks` — T_Hooks pattern
 **Problem**: A complex item type needs custom logic for allocation, reset, and disposal.
-**Fix**: Define `factory`, `reset`, and `dispose` procedures and register them in a `pool.T_Hooks` constant. Pass this constant to `pool.init`. The pool will then call your custom procedures at the appropriate lifecycle points.
+**Fix**: Define `factory`, `reset`, and `dispose` procedures and register them in a `pool.T_Hooks` constant. Pass this constant to `pool_init`. The pool will then call your custom procedures at the appropriate lifecycle points.

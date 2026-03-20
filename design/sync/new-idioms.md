@@ -28,17 +28,16 @@ non-intrusive:             intrusive:
 The queue is linked via embedded nodes directly. The item IS the node carrier.
 Zero-copy is a consequence: only pointers travel, never data.
 
-`PolyNode` is the intrusive node for odin-itc. It is built on `core:container/intrusive` list node:
+`PolyNode` is the intrusive node for odin-itc.
 
 ```odin
 PolyNode :: struct {
-    using node: intrusive.Node,  // offset 0 — list mechanics live here
-    id: int,                     // user-defined — identifies the concrete type
+    next: ^PolyNode, // Intrusive link for MPMC free-lists
+    id:   int,        // Type discriminator (stamped by factory)
 }
 ```
 
-`intrusive.Node` provides the queue link (`next`, `prev`).
-`PolyNode` adds `id` on top — the discriminator that tells user code what concrete type is behind the pointer.
+`PolyNode` provides the queue link (`next`) and the `id` discriminator that tells user code what concrete type is behind the pointer.
 
 Every participant type embeds `PolyNode` at offset 0:
 
@@ -56,7 +55,7 @@ Progress :: struct {
 ```
 
 `using` at each level promotes fields upward:
-- `chunk.next` == `chunk.poly.node.next`
+- `chunk.next` == `chunk.poly.next`
 - `chunk.id`   == `chunk.poly.id`
 
 Whether participant types carry additional nodes for other queues does not matter.
@@ -92,11 +91,11 @@ itc responsibility:
   - ^Maybe(^PolyNode) ownership contract
   - id list validation at get and put
   - hooks dispatch — factory/reset/dispose called with ctx, routed by id
-  - foreign item detection (id mismatch, allocator mismatch)
+  - foreign item detection (id-based validation)
 
 user responsibility:
   - id enum definition
-  - Pool_Hooks implementations — factory/reset/dispose per id
+  - FlowPolicy implementations — factory/on_get/on_put/dispose per id
   - casting ^PolyNode to concrete type after receive
   - switching on node.id — receiver dispatch
   - pool return after processing
@@ -123,8 +122,8 @@ One variable. Whole lifetime. Misuse detected at every boundary.
 **APIs that follow this contract:**
 - `pool_get` — fills `m^` with a fresh or recycled item
 - `mbox_send` — transfers `m^` to mailbox queue, sets `m^ = nil` on success
-- `pool.put` — returns `m^` to free list, sets `m^ = nil` on success
-- `pool_dispose` — frees `m^` permanently via hooks, sets `m^ = nil`
+- `pool_put` — item is returned to free list, or consumed/disposed by `on_put`. `m^` is always nil after pool_put for valid (own) items.
+- Call `flow_dispose(ctx, alloc, &m)` to permanently free an item (shutdown, drain, or byte-limit exceeded).
 
 **Result:** One variable, one check, same meaning everywhere.
 
@@ -152,9 +151,9 @@ Every item acquired from the pool must be returned. No exceptions. No detours.
 Three valid endings for any item:
 
 ```
-pool.put(&p, &m)       // recycle — normal path after processing
-pool_dispose(&p, &m)   // destroy — shutdown, foreign, or byte limit exceeded
-mbox_send(&mb, &m)     // transfer — receiver will put or dispose
+pool_put(&p, &m)                       // recycle — normal path after processing
+flow_dispose(policy.ctx, alloc, &m)    // destroy — shutdown or byte limit exceeded
+mbox_send(&mb, &m)                     // transfer — receiver will put or dispose
 ```
 
 There is no fourth option. A forgotten item starves the pool silently over time.
@@ -165,11 +164,11 @@ Every case branch of the receiver switch must end with one of these three:
 switch FlowId(m.?.id) {
 case .Chunk:
     process(...)
-    pool.put(&p, &m)      // must not forget
+    pool_put(&p, &m)      // must not forget
 
 case .Progress:
     update(...)
-    pool.put(&p, &m)      // must not forget
+    pool_put(&p, &m)      // must not forget
 }
 // no case exits without returning the item
 ```
@@ -180,19 +179,20 @@ case .Progress:
 m: Maybe(^PolyNode)
 
 // 1. Acquire
-pool_get(&p, &m, int(FlowId.Chunk), .Always)  // returns .Already_In_Use if m^ != nil
-defer pool_dispose(&p, &m)                     // [itc: defer-dispose] no-op if transferred
+if pool_get(&pool, int(FlowId.Chunk), .Recycle_Or_Alloc, &m) {
+    defer pool_put(&pool, &m) // [itc: defer-put] no-op if transferred
 
-// 2. Use — cast to concrete type
-c := (^Chunk)(m.?)
-c.len = fill(c.data[:])
+    // 2. Use — cast to concrete type
+    c := (^Chunk)(m.?)
+    c.len = fill(c.data[:])
 
-// 3. Transfer
-mbox_send(&mb, &m)   // m^ = nil on success — dispose becomes no-op
-                     // m^ unchanged on failure — dispose cleans up
+    // 3. Transfer
+    mbox_send(&mb, &m)   // m^ = nil on success — pool_put is a no-op
+                         // m^ unchanged on failure — pool_put recycles or on_put disposes
+}
 
 // 4. Loop
-// On next iteration, pool_get verifies m^ is nil.
+// On next iteration, pool_get can be called again.
 ```
 
 ---
@@ -213,7 +213,7 @@ Master is not a library type — it is a pattern you define. A Master struct own
 
 Why heap-allocated? If Master lives on a stack and that proc returns while threads are still running, all `^Master` pointers held by threads become invalid. Heap allocation gives Master a lifetime not tied to any stack frame.
 
-Master owns the allocator. Factory receives it via `ctx`. Items stamp it on allocation so `pool.put` can detect foreign items.
+Master owns the allocator. Factory receives it via `ctx`. Items stamp it on allocation so pool_put can detect foreign items via id-based validation.
 
 ```odin
 Master :: struct {
@@ -231,7 +231,7 @@ Master.allocator
         → factory(ctx, id)
             → m := (^Master)(ctx)
             → item.allocator = m.allocator
-                → pool.put checks item.allocator via ctx
+                → item.allocator is passed to FlowPolicy hooks (e.g., on_put) for policy decisions
 ```
 
 ### Thread
@@ -269,10 +269,10 @@ Items are not limited to data payloads. An item can be a connection, a buffer, a
 
 A pool holds a set of reusable items. It is type-erased — it operates on `^PolyNode` only.
 
-- Master calls `pool_get` to borrow an item, `pool.put` to return it.
+- Master calls `pool_get` to borrow an item, `pool_put` to return it.
 - `pool_get` takes an `id` and a `mode` — `id` selects the concrete type to allocate, `mode` selects the allocation strategy.
-- `Pool_Hooks` (ctx / factory / reset / dispose) tells the pool how to manage the item lifecycle. `ctx` is forwarded to every hook call — carries the allocator and any other needed state.
-- Foreign items (id mismatch or allocator mismatch) are returned to the caller for disposal.
+- `FlowPolicy` (containing `ctx` and `factory`, `on_get`, `on_put`, `dispose` hooks) tells the pool how to manage the item lifecycle. `on_get` is used for sanitizing recycled items. `ctx` is forwarded to every hook call, carrying the allocator and any other needed state.
+- Foreign items (unrecognized id) are not accepted — `m^` remains non-nil, caller retains ownership.
 
 ### Mbox (Mailbox)
 
@@ -283,13 +283,13 @@ A mailbox moves a `^PolyNode` from one Master to another. It is type-erased — 
 - `mbox.close` atomically empties the queue and returns the head of the remaining list as `^PolyNode`. Caller is forced to drain and dispose — no silent leak possible.
 
 ```odin
-// shutdown — close returns remaining items, caller drains via pool_dispose
+// shutdown — close returns remaining items, caller drains via flow_dispose
 head := mbox.close(&mb)
 node := head
 for node != nil {
     next := node.next
     m: Maybe(^PolyNode) = node
-    pool_dispose(&p, &m)    // pool routes by node.id, uses its own hooks
+    flow_dispose(policy.ctx, alloc, &m)    // routes by node.id via FlowPolicy.dispose
     node = next
 }
 ```
@@ -313,9 +313,9 @@ Thread A                         Thread B
        │                                 ├─ wait_receive → ^PolyNode
        │                                 ├─ switch node.id
        │                                 ├─ cast to concrete type
-       │                                 └─ pool.put → recycle
+       │                                 └─ pool_put → recycle
        │
-       └─ shutdown: mbox.close → returns list → pool_dispose each → pool_destroy
+       └─ shutdown: mbox.close → returns list → flow_dispose each → pool_destroy
 ```
 
 ### ITC participant
@@ -357,10 +357,10 @@ Where to find this documentation: `design/idioms.md`
 ## Core invariants
 
 - **Ownership**: transfer heap pointers via `^Maybe(^PolyNode)`. On success, inner is nil — transfer complete. On failure, inner is unchanged — caller retains the pointer.
-- **Must return**: every item acquired from the pool must be returned — via `pool.put`, `pool_dispose`, or `mbox_send`. No exceptions.
-- **Intrusive**: every item embeds `PolyNode` (which embeds `intrusive.Node`) at offset 0. No separate node allocation. Queue is linked via embedded nodes.
+- **Must return**: every item acquired from the pool must be returned — via `pool_put`, `flow_dispose`, or `mbox_send`. No exceptions.
+- **Intrusive**: every item embeds `PolyNode` (which has a `next` pointer) at offset 0. No separate node allocation. Queue is linked via embedded nodes.
 - **Type-erased**: pool and mailbox operate on `^PolyNode` only. All concrete type knowledge lives in user code.
-- **Lifecycle**: items with internal resources use factory/reset/dispose/accept. Register them in `Pool_Hooks`. Pool calls them automatically with `ctx`, routed by `node.id`.
+- **Lifecycle**: items with internal resources use `factory`/`on_get`/`on_put`/`dispose`. Register them in `FlowPolicy`. Pool calls them automatically with `ctx`, routed by `node.id`.
 - **Concurrency**: ITC participants live in heap-allocated structs. Thread procs hold only a pointer to the owner struct.
 
 ---
@@ -370,20 +370,20 @@ Where to find this documentation: `design/idioms.md`
 | Tag | Name | One line |
 |-----|------|----------|
 | `maybe-container` | Maybe as container | Keep item in `Maybe(^PolyNode)` from get to transfer. Never extract raw pointer. |
-| `defer-put` | must return to pool | Every item must be returned via pool.put, pool_dispose, or mbox_send. No exceptions. |
-| `dispose-contract` | dispose hook signature | A dispose hook takes `(ctx: rawptr, m: ^Maybe(^PolyNode))`. Routes by `node.id`. Nil inner is a no-op. Register in Pool_Hooks. Call via `pool_dispose`. |
-| `defer-dispose` | defer with pool_dispose | Use `defer pool_dispose(&p, &m)` so cleanup runs in all paths. |
+| `defer-put` | must return to pool | Every item must be returned via pool_put, flow_dispose, or mbox_send. Use `defer pool_put(&p, &m)` as a scope-exit safety net. |
+| `dispose-contract` | dispose hook signature | A `dispose` hook takes `(ctx, alloc, ^Maybe(^PolyNode))`. Routes by `id`. Register in `FlowPolicy`. Call directly as `flow_dispose(ctx, alloc, &m)`. |
+| `defer-dispose` | defer with pool_put | Use `defer pool_put(&p, &m)` so cleanup runs in all paths. If m^ is nil (transferred or recycled), pool_put is a no-op. |
 | `poly-item` | poly item full lifecycle | Items embed PolyNode at offset 0. Pool allocates per id. Receiver switches on node.id. Every case returns item. |
-| `foreign-dispose` | foreign item | When put returns a foreign pointer, call pool_dispose, not free. |
-| `mbox-close-drain` | drain after close | mbox.close returns remaining list. Walk list, call pool_dispose on each node. |
-| `reset-vs-dispose` | reset vs dispose | reset clears state for reuse. dispose frees permanently. factory allocates per id. |
-| `dispose-optional` | dispose is advice | pool_dispose is never called by mailbox. Caller calls it via defer or drain loop. |
+| `foreign-dispose` | foreign item | If `m^` is non-nil after pool_put, ownership remains with caller. Call flow_dispose(ctx, alloc, &m) to permanently dispose. |
+| `mbox-close-drain` | drain after close | `mbox.close` returns remaining list. Walk list, call `flow_dispose` on each node. |
+| `on-get-hygiene` | `on_get` for hygiene | `on_get` is called on every recycled item. Use it to zero or sanitize the item for reuse. |
+| `dispose-optional` | dispose is advice | `flow_dispose` is never called by mailbox. Caller calls it via defer or drain loop. |
 | `heap-master` | heap-allocated master | Heap-allocate the struct that owns ITC participants when shared with spawned threads. |
-| `thread-container` | thread is a container | A thread proc only casts rawptr to ^Master. No ITC participants as stack locals. |
+| `thread-container` | thread is a container | A thread proc only casts `rawptr` to `^Master`. No ITC participants as stack locals. |
 | `errdefer-dispose` | conditional defer for factory | Use named return + `defer if !ok { dispose(...) }` when a proc creates and returns a master. |
 | `defer-destroy` | destroy at scope exit | Register `defer destroy` for pools/mboxes/loops to guarantee shutdown in all paths. |
-| `poly-hooks` | Pool_Hooks for poly items | Define factory/reset/dispose/accept as a :: constant next to the id enum. Set ctx at runtime. |
-| `pool-accept` | per-id count limiting | accept(ctx, id, current_count) → bool. nil = always recycle. Pool passes count outside lock. |
+| `poly-hooks` | `FlowPolicy` for poly items | Define `factory`/`on_get`/`on_put`/`dispose` as a `::` constant. Set `ctx` at runtime. |
+| `on-put-backpressure`| Per-ID Count Limiting | Use the `on_put` hook with `in_pool_count` to implement backpressure by consuming items. |
 
 ---
 
@@ -398,9 +398,10 @@ Where to find this documentation: `design/idioms.md`
 ```odin
 // [itc: maybe-container]
 m: Maybe(^PolyNode)
-pool_get(&p, &m, int(FlowId.Chunk), .Always)
-mbox_send(&mb, &m)
-// m^ is nil here — transfer complete
+if pool_get(&p, int(FlowId.Chunk), .Recycle_Or_Alloc, &m) {
+	mbox_send(&mb, &m)
+}
+// m^ is nil here if send was successful — transfer complete
 ```
 
 ---
@@ -409,54 +410,55 @@ mbox_send(&mb, &m)
 
 **Problem**: An item has internal heap resources. You need a hook to free them all safely.
 
-**Fix**: Write a dispose hook that follows the `(ctx: rawptr, m: ^Maybe(^PolyNode))` contract, routes by `node.id`, and registers it in `Pool_Hooks`. Callers always go through `pool_dispose` — never call the hook directly.
+**Fix**: Write a dispose hook that follows the `(ctx: rawptr, alloc: mem.Allocator, m: ^Maybe(^PolyNode))` contract, routes by `node.id`, and registers it in `FlowPolicy`.
 
 ```odin
 // [itc: dispose-contract]
-// this is a hook — registered in Pool_Hooks, called by pool internally
-flow_dispose :: proc(ctx: rawptr, m: ^Maybe(^PolyNode)) {
+// this is a hook — registered in FlowPolicy, called by pool internally
+flow_dispose :: proc(ctx: rawptr, alloc: mem.Allocator, m: ^Maybe(^PolyNode)) {
     if m == nil  { return }
     if m^ == nil { return }
     node := m^
     switch FlowId(node.id) {
     case .Chunk:
         c := (^Chunk)(node)
-        free(c, c.allocator)
+        free(c, alloc)
     case .Progress:
         p := (^Progress)(node)
-        free(p, p.allocator)
+        free(p, alloc)
     }
     m^ = nil
 }
 
-// call site — always via pool, never directly
-pool_dispose(&p, &m)    // pool calls flow_dispose(hooks.ctx, &m) internally
+// call site — call directly
+flow_dispose(policy.ctx, alloc, &m)    // call directly
 ```
 
 **Contract**:
-- Takes `ctx: rawptr` and `^Maybe(^PolyNode)`. Nil inner is a no-op. Sets inner to nil on return.
+- Takes `ctx: rawptr`, `alloc: mem.Allocator`, and `^Maybe(^PolyNode)`. Nil inner is a no-op. Sets inner to nil on return.
 - Routes cleanup by `node.id` — each concrete type freed correctly.
 - Must be safe to call after partial init. All cleanup steps handle zero-initialized fields.
-- Register as `Pool_Hooks.dispose`. Never call directly from user code.
+- Register as `FlowPolicy.dispose`. Call directly using `flow_dispose(ctx, alloc, &m)`.
 
 ---
 
-### `defer-dispose` — defer with dispose
+### `defer-dispose` — defer with pool_put
 
 **Problem**: You fill an item before sending. If send fails, you need to clean up.
 
-**Fix**: Register `pool_dispose` via `defer` immediately after acquisition. Pool calls `hooks.dispose(ctx, &m)` internally — single source of truth, no duplicate logic.
+**Fix**: Register `pool_put` via `defer` immediately after acquisition. If `m^` is non-nil at scope exit, `pool_put` recycles the item or the `on_put` hook disposes it.
 
 ```odin
 m: Maybe(^PolyNode)
-pool_get(&p, &m, int(FlowId.Chunk), .Always)
-defer pool_dispose(&p, &m)          // [itc: defer-dispose]
+if pool_get(&p, int(FlowId.Chunk), .Recycle_Or_Alloc, &m) {
+    defer pool_put(&p, &m)              // [itc: defer-put]
 
-c := (^Chunk)(m.?)
-c.len = fill(c.data[:])
-mbox_send(&mb, &m)
-// send success → m^ = nil → dispose is no-op
-// send failure → m^ non-nil → pool_dispose frees via hooks.dispose(ctx, node.id)
+    c := (^Chunk)(m.?)
+    c.len = fill(c.data[:])
+    mbox_send(&mb, &m)
+    // send success → m^ = nil → pool_put is no-op
+    // send failure → m^ non-nil → pool_put recycles or on_put hook disposes
+}
 ```
 
 **One owner rule**: never copy `m^` into a second `Maybe`. Two `Maybe` variables pointing to the same `^PolyNode` means two potential dispose calls on the same memory.
@@ -487,13 +489,13 @@ create_master :: proc() -> (m: ^Master, ok: bool) {
 
 ### `dispose-optional` — dispose is advice
 
-**Problem**: `pool_dispose` is never called automatically by mailbox. Only the caller does it. It is easy to forget.
+**Problem**: `flow_dispose` is never called automatically by mailbox. Only the caller does it. It is easy to forget.
 
-**Fix**: Use `defer pool_dispose(&p, &m)` (`defer-dispose`) or manual drain loops when an item leaves the system permanently.
+**Fix**: Use `defer pool_put(&p, &m)` (`defer-put`) or manual drain loops when an item leaves the system permanently.
 
 ```odin
 // [itc: dispose-optional]
-// You call pool_dispose when the item will not be recycled.
+// You call flow_dispose when the item will not be recycled.
 ```
 
 ---
@@ -523,34 +525,33 @@ Progress :: struct {
 }
 
 // pool init — ctx set at runtime, proc pointers from compile-time constant
-hooks := FLOW_HOOKS
-hooks.ctx = &master
-pool_init(&p,
-    hooks = hooks,
-    ids   = {int(FlowId.Chunk), int(FlowId.Progress)},
-)
+policy := FLOW_POLICY
+policy.ctx = &master
+pool_init(&p, policy, master.allocator)
 
 // Producer:                                           // [itc: poly-item]
 m: Maybe(^PolyNode)
-pool_get(&p, &m, int(FlowId.Chunk), .Always)
-defer pool_dispose(&p, &m)                                 // [itc: defer-dispose]
-c := (^Chunk)(m.?)
-c.len = fill(c.data[:])
-mbox_send(&mb, &m)
+if pool_get(&p, int(FlowId.Chunk), .Recycle_Or_Alloc, &m) {
+    defer pool_put(&p, &m)                                     // [itc: defer-put]
+    c := (^Chunk)(m.?)
+    c.len = fill(c.data[:])
+    mbox_send(&mb, &m)
+}
+
 
 // Consumer:
 m2: Maybe(^PolyNode)
 mbox.wait_receive(&mb, &m2)
-defer pool_dispose(&p, &m2)                               // [itc: defer-dispose]
+defer pool_put(&p, &m2)                                    // [itc: defer-put]
 switch FlowId(m2.?.id) {
 case .Chunk:
     c := (^Chunk)(m2.?)
     process_chunk(c)
-    pool.put(&p, &m2)                                  // [itc: defer-put]
+    pool_put(&p, &m2)                                  // [itc: defer-put]
 case .Progress:
     pr := (^Progress)(m2.?)
     update_progress(pr)
-    pool.put(&p, &m2)
+    pool_put(&p, &m2)
 }
 ```
 
@@ -566,50 +567,51 @@ case .Progress:
 
 **Problem**: After receiving and processing an item, it is easy to forget to return it. A forgotten item starves the pool silently over time.
 
-**Fix**: Every case branch of the receiver switch must end with `pool.put`, `pool_dispose`, or `mbox_send`. There is no fourth option.
+**Fix**: Every case branch of the receiver switch must end with `pool_put`, `flow_dispose`, or `mbox_send`. There is no fourth option.
 
 ```odin
 m: Maybe(^PolyNode)
 mbox.wait_receive(&mb, &m)
-defer pool_dispose(&p, &m)      // [itc: defer-dispose] — safety net only
+defer pool_put(&p, &m)      // [itc: defer-put] — safety net only
 
 switch FlowId(m.?.id) {
 case .Chunk:
     process(...)
-    pool.put(&p, &m)            // [itc: defer-put] — normal recycle path
+    pool_put(&p, &m)            // [itc: defer-put] — normal recycle path
 
 case .Progress:
     update(...)
-    pool.put(&p, &m)            // [itc: defer-put] — normal recycle path
+    pool_put(&p, &m)            // [itc: defer-put] — normal recycle path
 }
 // no case exits without returning the item
 ```
 
 **The three valid endings**:
-- `pool.put(&p, &m)` — recycle, normal path
-- `pool_dispose(&p, &m)` — destroy, for shutdown or byte-limit exceeded
+- `pool_put(&p, &m)` — recycle, normal path
+- `flow_dispose(ctx, alloc, &m)` — destroy, for shutdown or byte-limit exceeded
 - `mbox_send(&mb, &m)` — transfer, receiver will put or dispose
 
-`defer pool_dispose` is a safety net — it fires only if `pool.put` was not reached. It should never be the primary disposition path in the receiver switch.
+`defer pool_put` is a safety net — it fires only if `pool_put` was not reached. It should never be the primary disposition path in the receiver switch.
 
 ---
 
 ### `foreign-dispose` — foreign item
 
-**Problem**: `pool.put` returns a pointer when the item is foreign (id mismatch or allocator mismatch). `free` alone leaks resources.
+**Problem**: `pool_put` does not accept an item with an unrecognized id. The caller must handle its disposal.
 
-**Fix**: Call `pool_dispose` on the returned pointer. Pool owns the hooks — it knows how to destroy any item it recognizes.
+**Fix**: After calling `pool_put`, check if `m^` is still non-nil. If it is, the item was not accepted (unrecognized id) and ownership remains with the caller.
 
 ```odin
-foreign := pool.put(&p, &m)
-if foreign != nil {
-    pool_dispose(&p, &foreign)    // [itc: foreign-dispose] — routes by node.id via hooks
+// [itc: foreign-dispose]
+pool_put(&p, &m)
+if m^ != nil {
+    // Foreign item — pool did not accept it (unrecognized id).
+    // Caller still owns. Dispose directly:
+    flow_dispose(policy.ctx, alloc, &m)
 }
 ```
 
-**Rule**: id mismatch or allocator mismatch → pool cannot recycle → caller calls `pool_dispose`.
-Pool validates the id against its registered list before dispatching to hooks.
-If the id is not recognized, pool returns the pointer — caller is responsible.
+**Rule**: If `m^` is non-nil after `pool_put`, the item was not accepted (unrecognized id). Call `flow_dispose` directly to permanently dispose of it.
 
 ---
 
@@ -617,7 +619,7 @@ If the id is not recognized, pool returns the pointer — caller is responsible.
 
 **Problem**: `mbox.close` returns remaining items. They must be disposed. Forgetting leaks memory.
 
-**Fix**: Walk the returned list. Call `pool_dispose` on each node. Pool owns the hooks — single source of truth for destruction.
+**Fix**: Walk the returned list. Call `flow_dispose` on each node.
 
 ```odin
 // [itc: mbox-close-drain]
@@ -626,53 +628,51 @@ node := head
 for node != nil {
     next := node.next
     m: Maybe(^PolyNode) = node
-    pool_dispose(&p, &m)    // routes by node.id via Pool_Hooks.dispose
+    flow_dispose(policy.ctx, alloc, &m)    // routes by node.id via FlowPolicy.dispose
     node = next
 }
 ```
 
-**Why `pool_dispose` not `flow_dispose`?**
-Pool already owns the lifecycle — factory, reset, dispose. Calling `pool_dispose` keeps destruction logic in one place. `flow_dispose` would duplicate it.
+Use `flow_dispose` (not `pool_put`) in drain loops: during shutdown, items should be destroyed, not recycled into the pool.
 
 **Why `close` returns the list?**
 No choice — caller is forced to handle remaining items. Misuse is impossible to ignore.
 
 ---
 
-**Problem**: It is easy to confuse `reset` (for reuse) with `dispose` (for permanent cleanup).
+**Problem**: It is easy to confuse `on_get` (for reuse) with `dispose` (for permanent cleanup).
 
-**Fix**: Keep them separate. Never free internal resources in `reset`. Both are routed by `node.id`.
+**Fix**: Keep them separate. `on_get` sanitizes for reuse; `dispose` frees permanently. Both are routed by `node.id`.
 
-| Hook | When called | What it does |
-|------|-------------|--------------|
-| `factory` | Fresh allocation | Allocates correct concrete type per id, stamps `node.id`, sets allocator |
-| `reset` | On recycle | Clears stale state for reuse. Never frees internal resources |
-| `dispose` | Permanent destruction | Routes by `node.id`, frees internal resources, frees struct, sets `m^ = nil` |
-| `accept` | On put, before recycle | Returns true to recycle, false to treat as foreign. Pool passes current free list count for this id. nil = always recycle |
+| Hook      | When called                       | What it does                                                                       |
+|-----------|-----------------------------------|------------------------------------------------------------------------------------|
+| `factory` | On `pool_get` miss                | Allocates correct concrete type per id, stamps `node.id`.                          |
+| `on_get`  | On `pool_get` hit (recycle)       | Clears stale state for reuse. Never frees internal resources.                      |
+| `on_put`  | On `pool_put`                     | Hook for backpressure. Can consume the item to prevent it from being recycled.     |
+| `dispose` | On `pool_destroy` or `flow_dispose` | Routes by `node.id`, frees internal resources, frees struct, sets `m^ = nil`.      |
 
 ```odin
 // factory: allocates per id via ctx — ctx carries Master or allocator
-flow_factory :: proc(ctx: rawptr, id: int) -> (^PolyNode, bool) {
-    m := (^Master)(ctx)
-    switch FlowId(id) {
+flow_factory :: proc(ctx: rawptr, alloc: mem.Allocator, id: int, in_pool_count: int) -> (^PolyNode, bool) {
+    #partial switch FlowId(id) {
     case .Chunk:
-        c := new(Chunk, m.allocator)
+        c := new(Chunk, alloc)
         if c == nil { return nil, false }
-        c.allocator = m.allocator
         c.id = id
         return (^PolyNode)(c), true
     case .Progress:
-        p := new(Progress, m.allocator)
+        p := new(Progress, alloc)
         if p == nil { return nil, false }
-        p.allocator = m.allocator
         p.id = id
         return (^PolyNode)(p), true
     }
     return nil, false
 }
 
-// reset: clears state for reuse — never frees     // [itc: reset-vs-dispose]
-flow_reset :: proc(ctx: rawptr, node: ^PolyNode) {
+// on_get: clears state for reuse — never frees     // [itc: on-get-hygiene]
+flow_on_get :: proc(ctx: rawptr, m: ^Maybe(^PolyNode)) {
+    if m == nil || m^ == nil { return }
+    node := m^
     switch FlowId(node.id) {
     case .Chunk:    (^Chunk)(node).len = 0
     case .Progress: (^Progress)(node).percent = 0
@@ -680,17 +680,17 @@ flow_reset :: proc(ctx: rawptr, node: ^PolyNode) {
 }
 
 // dispose: frees everything permanently            // [itc: dispose-contract]
-flow_dispose :: proc(ctx: rawptr, m: ^Maybe(^PolyNode)) {
+flow_dispose :: proc(ctx: rawptr, alloc: mem.Allocator, m: ^Maybe(^PolyNode)) {
     if m == nil  { return }
     if m^ == nil { return }
     node := m^
     switch FlowId(node.id) {
     case .Chunk:
         c := (^Chunk)(node)
-        free(c, c.allocator)
+        free(c, alloc)
     case .Progress:
         p := (^Progress)(node)
-        free(p, p.allocator)
+        free(p, alloc)
     }
     m^ = nil
 }
@@ -698,80 +698,86 @@ flow_dispose :: proc(ctx: rawptr, m: ^Maybe(^PolyNode)) {
 
 ---
 
-### `poly-hooks` — Pool_Hooks for poly items
+### `poly-policy` — FlowPolicy for poly items
 
-**Problem**: A pool must allocate, reset, and dispose multiple concrete types correctly. Scattering this logic leads to leaks.
+**Problem**: A pool must allocate, sanitize, and dispose multiple concrete types correctly. Scattering this logic leads to leaks.
 
-**Fix**: Define factory/reset/dispose as a `::` compile-time constant next to the id enum. Set `ctx` at runtime before passing to `pool_init`. Pool forwards `ctx` to every hook call.
+**Fix**: Define the `factory`/`on_get`/`on_put`/`dispose` hooks as a `::` compile-time `FlowPolicy` constant. Set `ctx` at runtime before passing to `pool_init`. Pool forwards `ctx` to every hook call.
 
 ```odin
 // compile-time — proc pointers only, ctx set at runtime
-FLOW_HOOKS :: Pool_Hooks{                // [itc: poly-hooks]
+FLOW_POLICY :: FlowPolicy{                // [itc: poly-policy]
     factory = flow_factory,   // allocates per id via ctx
-    reset   = flow_reset,     // reuse hygiene per id
+    on_get  = flow_on_get,    // reuse hygiene per id
+    on_put  = flow_on_put,    // backpressure hook
     dispose = flow_dispose,   // permanent free per id
 }
 
 // runtime — ctx points to Master (or any user state)
-hooks := FLOW_HOOKS
-hooks.ctx = &master
+policy := FLOW_POLICY
+policy.ctx = &master
 
-pool_init(&p,
-    hooks = hooks,
-    ids   = {int(FlowId.Chunk), int(FlowId.Progress)},
-)
+pool_init(&p, policy, master.allocator)
 ```
 
 **Rules**:
 - All four proc fields are optional. nil = default behavior.
-- `ctx` is runtime — cannot be set in a `::` constant. Set it before passing hooks to `pool_init`.
-- `factory` receives `ctx` and `id` — allocates the correct concrete type, stamps `node.id`. Must self-clean on failure. Returns `(nil, false)` on failure.
-- `reset` receives `ctx` and `^PolyNode` — must NOT free internal resources.
-- `dispose` receives `ctx` and `^Maybe(^PolyNode)` — routes by `node.id`, frees internal resources, frees struct, sets `m^ = nil`.
-- `accept` receives `ctx`, `id`, and `current_count` — return true to recycle, false to reject. Called outside pool mutex.
+- `ctx` is runtime — cannot be set in a `::` constant. Set it before passing the policy to `pool_init`.
+- `factory` receives `ctx`, `alloc`, `id`, `in_pool_count` — allocates the correct concrete type, stamps `node.id`.
+- `on_get` receives `ctx` and `^Maybe(^PolyNode)` — must NOT free internal resources.
+- `on_put` receives `ctx`, `alloc`, `in_pool_count`, `^Maybe(^PolyNode)` — implements backpressure.
+- `dispose` receives `ctx`, `alloc`, and `^Maybe(^PolyNode)` — routes by `node.id`, frees everything.
 - If you use `factory`, also use `dispose`. They are the create/destroy pair.
-- `ctx` carries the allocator — no separate allocator parameter in `pool_init`.
 
 ---
 
-### `pool-accept` — per-id count limiting
+### `on-put-backpressure` — Per-ID Count Limiting
 
 **Problem**: Different item types need different recycling limits. A single pool max cannot express per-id policies.
 
-**Fix**: Implement `accept` hook. Pool passes the current free list count for the item's id. Hook returns true to recycle, false to treat as foreign (caller disposes).
+**Fix**: Implement the `on_put` hook. The pool passes the current `in_pool_count` for the item's id. The hook can then decide whether to recycle the item or consume it to enforce a limit.
 
 ```odin
-// [itc: pool-accept]
-flow_accept :: proc(ctx: rawptr, id: int, current_count: int) -> bool {
-    switch FlowId(id) {
-    case .Chunk:    return current_count < 400   // max 400 chunks in free list
-    case .Progress: return current_count < 128   // max 128 progress items
+// [itc: on-put-backpressure]
+flow_on_put :: proc(ctx: rawptr, alloc: mem.Allocator, in_pool_count: int, m: ^Maybe(^PolyNode)) {
+    if m == nil || m^ == nil { return }
+    #partial switch FlowId(m.?.id) {
+    case .Chunk:
+        if in_pool_count > 400 {
+            // too many chunks, dispose this one
+            flow_dispose(ctx, alloc, m) // m^ will be nil after this
+        }
+    case .Progress:
+        if in_pool_count > 128 {
+            // too many progress indicators, dispose this one
+            flow_dispose(ctx, alloc, m) // m^ will be nil after this
+        }
     }
-    return false
 }
 ```
 
 **Rules**:
-- Called outside pool mutex — safe to read any state in `ctx`.
+- Called outside pool lock — safe to read any state in `ctx`.
 - Pool passes count for this specific id — not total pool count.
-- nil `accept` = always recycle. Default. No limits.
-- Limit by count only. Byte-level limits are user responsibility — maintain a byte counter in `ctx` and call `pool_dispose` manually instead of `pool.put` when exceeded.
+- To reject an item, the hook must fully dispose of it and ensure `m^` is `nil`.
+- If `on_put` is `nil`, the pool always recycles items.
+- For byte-level limits, the user must maintain a counter in `ctx` and decide whether to call `pool_put` or `flow_dispose(ctx, alloc, &m)` themselves.
 
 ### Pool get modes
 
 Mode is a per-call parameter of `pool_get`. Not a pool policy.
 
 ```odin
-pool_get(&p, &m, int(FlowId.Chunk), .Always)      // free list first, allocate if empty
-pool_get(&p, &m, int(FlowId.Chunk), .Standalone)  // always allocate, ignore free list
-pool_get(&p, &m, int(FlowId.Chunk), .Pool_Only)   // free list only, error if empty
+pool_get(&p, int(FlowId.Chunk), .Recycle_Or_Alloc, &m) // free list first, allocate if empty
+pool_get(&p, int(FlowId.Chunk), .Alloc_Only,       &m) // always allocate, ignore free list
+pool_get(&p, int(FlowId.Chunk), .Recycle_Only,     &m) // free list only, error if empty
 ```
 
-| Mode | Behavior |
-|---|---|
-| `.Always` | take from free list if available, allocate if empty |
-| `.Standalone` | always allocate, never touch free list |
-| `.Pool_Only` | free list only, error if empty — never allocates |
+| Mode                 | Behavior                                          |
+|----------------------|---------------------------------------------------|
+| `.Recycle_Or_Alloc`  | take from free list if available, allocate if empty |
+| `.Alloc_Only`        | always allocate, never touch free list          |
+| `.Recycle_Only`      | free list only, error if empty — never allocates  |
 
 ---
 
@@ -819,9 +825,10 @@ proc(data: rawptr) {
 mbox_init(&mb)
 defer mbox_destroy(&mb)  // [itc: defer-destroy]
 
-hooks := FLOW_HOOKS
-hooks.ctx = &master
-pool_init(&p, hooks = hooks, ids = {int(FlowId.Chunk), int(FlowId.Progress)})
+// Assumes `master` is a struct with `allocator` field and `FLOW_POLICY` is defined
+policy := FLOW_POLICY
+policy.ctx = &master
+pool_init(&p, policy, master.allocator)
 defer pool_destroy(&p)
 ```
 
@@ -851,7 +858,7 @@ defer sync.mutex_unlock(&m)
    - Always use this for `Pool` and `Mailbox` instances owned by the current scope.
    - If the resource is part of a `Master` struct, the `master_dispose` proc handles the destroy calls.
 
-2. **`defer-dispose`**:
+2. **`defer-put`**:
    - Register immediately after `pool_get`. Never wait until after filling the item.
    - One dispose per one live `Maybe(^PolyNode)`. Never copy `m^` into a second `Maybe` — two owners, two potential frees, one corruption.
 

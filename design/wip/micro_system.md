@@ -189,7 +189,7 @@ WORKER_HOOKS :: pool.T_Hooks(Worker){
 ```
 
 - The Spool Master owns the **Worker pool**.
-- `pool.get` borrows a Worker (a running thread + its mboxes). `pool.put` returns it.
+- `pool_get` borrows a Worker (a running thread + its mboxes). `pool.put` returns it.
 - Each Worker thread proc casts `rawptr` to `^Worker` and calls `worker_run`. It declares nothing on its own stack.
 - `worker_factory` spawns the thread and initializes the mboxes. `worker_dispose` closes mboxes, joins the thread, frees the struct.
 - Worker Master runs on the heap. No stack escapes.
@@ -266,7 +266,7 @@ A `Job` is not just a data record. It is an item in the full odin-itc sense.
 - Lives in a **Pool** (owned by a Master — e.g., the Spool Master or a Job Manager Master).
 - Transferred between Masters via **Mboxes**. Ownership moves with the item.
 - Returned to Pool after processing (`pool.put`). The **reset hook** can signal completion to the rest of the system.
-- To start a new job: `pool.get` with timeout on the free-jobs pool. If the system is at capacity, the caller blocks.
+- To start a new job: `pool_get` with timeout on the free-jobs pool. If the system is at capacity, the caller blocks.
 
 The Job item is **disposable**. It carries string fields (ticket data, PDL content) that require `dispose`, `reset`, and `factory` in `T_Hooks`.
 
@@ -287,7 +287,7 @@ JOB_HOOKS :: pool.T_Hooks(Job){
 
 ### Pool as capacity control
 
-Pool size = max concurrent jobs. When the pool is empty, `pool.get` blocks the caller. This is **backpressure** with no extra code.
+Pool size = max concurrent jobs. When the pool is empty, `pool_get` blocks the caller. This is **backpressure** with no extra code.
 
 ---
 
@@ -366,14 +366,14 @@ All four Workers call `mbox.recv` on the same mbox. Items are distributed by arr
 | Concept | odin-itc realization |
 |---|---|
 | Unit of work | `Job` item in a pool |
-| Work dispatch | `pool.get` → fill Job → `mbox.send` |
+| Work dispatch | `pool_get` → fill Job → `mbox_send` |
 | Work completion | `pool.put` → reset hook notifies system |
 | Pipeline stage | one Master + one input mbox |
 | Parallelism | N Masters sharing one input mbox |
 | Fan-Out / Fan-In | mbox natively |
 | Routing | Job carries logical names (A) or Master sets next (B) |
 | Capacity control | pool size = max concurrent jobs |
-| Backpressure | `pool.get` blocks when pool is empty |
+| Backpressure | `pool_get` blocks when pool is empty |
 
 Pools, Mboxes, Items, and Masters compose into any topology: single worker, pipeline, fan-out, fan-in, dynamic routing — all from the same four primitives.
 

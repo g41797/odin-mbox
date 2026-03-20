@@ -29,9 +29,9 @@ proc(data: rawptr) {
 **Problem**: Resources like pools and mailboxes must be shut down in all code paths to prevent leaks or deadlocks.
 **Fix**: Register `destroy` with `defer` immediately after successful initialization. This guarantees the cleanup logic runs even if the function exits early.
 ```odin
-mbox.init(&mb)
-defer mbox.destroy(&mb) // [itc: defer-destroy]
+mbox_init(&mb)
+defer mbox_destroy(&mb) // [itc: defer-destroy]
 
-pool.init(&p)
-defer pool.destroy(&p)
+pool_init(&p)
+defer pool_destroy(&p)
 ```

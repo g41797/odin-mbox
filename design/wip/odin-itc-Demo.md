@@ -4,7 +4,7 @@ This document demonstrates how to build a simple multi-threaded process using `o
 
 The goal is not to show all features, but to make one thing clear:
 
-> You don’t need mutexes, shared state, or complex synchronization  
+> You don’t need mutexes, shared state, or complex synchronization
 > if ownership is explicit and communication is message-based.
 
 ---
@@ -152,7 +152,7 @@ Create → Reset → Use → Recycle → Destroy
 main_loop :: proc(m: ^MainMaster) {
     for {
         // 1. Create job
-        job := pool.get(&m.job_pool)
+        job := pool_get(&m.job_pool)
         job.id = next_id()
 
         // 2. Send job
@@ -189,7 +189,7 @@ worker_loop :: proc(w: ^WorkerMaster) {
 
         // Process job
         for i in 0..<10 {
-            progress := pool.get(&w.progress_pool)
+            progress := pool_get(&w.progress_pool)
             progress.job_id = job.id
             progress.current = i
             progress.total = 10
@@ -197,7 +197,7 @@ worker_loop :: proc(w: ^WorkerMaster) {
             send(&w.workers_to_main, &progress)
         }
 
-        result := pool.get(&w.result_pool)
+        result := pool_get(&w.result_pool)
         result.job_id = job.id
         result.success = true
 

@@ -20,7 +20,7 @@ Msg :: struct {
 // Sender thread:
 msg: Maybe(^Msg) = new(Msg)
 msg.?.data = 42
-mbox.send(&mb, &msg) // msg = nil after this — mailbox owns it
+mbox_send(&mb, &msg) // msg = nil after this — mailbox owns it
 
 // Receiver (non-blocking poll):
 got: Maybe(^Msg)
@@ -73,7 +73,7 @@ img := new(Image_Msg)
 img.kind = .Process_Image
 img.width = 1920
 env: Maybe(^Envelope) = &img.base
-mbox.send(&mb, &env)  // env = nil after this
+mbox_send(&mb, &env)  // env = nil after this
 
 // Receive and dispatch:
 got: Maybe(^Envelope)
@@ -172,7 +172,7 @@ for {
     req, ok := mbox.try_receive_loop(&loop_mb)
     if !ok { break }
     req.data = req.data + 1   // modify in place
-    mbox.send(&reply_mb, req) // send same object back — worker will free it
+    mbox_send(&reply_mb, req) // send same object back — worker will free it
 }
 ```
 
@@ -203,7 +203,7 @@ for {
 for _ in 0 ..< N / P {
     msg: Maybe(^Msg)
     if pool_pkg.get(&shared_pool, &msg) == .Ok {
-        mbox.send(&mb, &msg)
+        mbox_send(&mb, &msg)
     }
 }
 
@@ -224,7 +224,7 @@ If your struct is already in another intrusive list, remove it first.
 // msg must be heap-allocated or from a pool — never stack-allocated.
 // Remove from existing list before sending to mailbox:
 list.remove(&other_list, &msg.node)
-ok := mbox.send(&mb, msg)
+ok := mbox_send(&mb, msg)
 ```
 
 Do not send a message that is already queued. The result is a broken list.
@@ -272,7 +272,7 @@ One thread allocates the message. One thread frees it after the game ends.
 ```odin
 // Before starting threads: allocate once on the heap.
 baton: Maybe(^Msg) = new(Msg)
-mbox.send(&mboxes[0], &baton)
+mbox_send(&mboxes[0], &baton)
 
 // Runner i:
 for {
@@ -282,7 +282,7 @@ for {
 
     // process baton...
 
-    mbox.send(next_mb, &baton)
+    mbox_send(next_mb, &baton)
 }
 
 // After all threads exit: free the baton if still held.
@@ -313,7 +313,7 @@ pool_pkg.init(&p, initial_msgs = 64, max_msgs = 256)
 msg: Maybe(^Msg)
 if pool_pkg.get(&p, &msg) == .Ok {
     msg.?.data = 42
-    mbox.send(&mb, &msg)
+    mbox_send(&mb, &msg)
 }
 
 // Receiver thread: receive, use, return to pool.

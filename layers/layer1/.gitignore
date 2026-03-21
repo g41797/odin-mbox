@@ -1,0 +1,9 @@
+# Odin build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+# odin doc output
+docs/*.json

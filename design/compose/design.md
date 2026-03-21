@@ -8,6 +8,30 @@ Cross-reference: [Golden Contract](../sync/golden-contract.md) — read it first
 
 ---
 
+## Spiral
+
+itc is a Matryoshka — nested layers, each complete on its own.
+
+You enter at the layer you need.
+You stop when you have enough.
+You go deeper only when the next layer solves a real problem you have right now.
+
+| Layer | What you have | What you don't need yet |
+|-------|--------------|------------------------|
+| 1 | `PolyNode` + `Maybe` | everything else |
+| 2 | + hooks (`factory`, `dispose`) | pool, mailbox |
+| 3 | + simple pool (wrapper around hooks) | extended pool, mailbox |
+| 4 | + extended pool (free-list, backpressure) | mailbox |
+| 5 | + mailbox | — full itc |
+
+**The rule:** move to the next layer because you need it — not because it is there.
+
+> This is an internal design principle, not user documentation.
+> When writing examples, docs, or new features — always ask:
+> which is the minimum layer this belongs to?
+
+---
+
 ## Document Writing Rules
 
 When editing this document, follow these rules:

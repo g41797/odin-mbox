@@ -8,13 +8,46 @@ Cross-reference: [Golden Contract](../sync/golden-contract.md) — read it first
 
 ---
 
+## Document Writing Rules
+
+When editing this document, follow these rules:
+
+**Sentences**
+- One idea per line.
+- Split compound sentences — do not chain clauses with commas.
+
+**Lists**
+- Use bullet lists for sets of items, attributes, or steps.
+- Use numbered lists only when order is contractually significant.
+
+**Sequential steps**
+- Write as a bullet list, not as a run-on sentence.
+- Label the context: `Send side:` / `Receive side:` / `Algorithm:` etc.
+
+**Tables**
+- Use for result codes, mode behavior, and invariants.
+- Keep column count minimal — two or three columns maximum.
+
+**Prose paragraphs**
+- Reserve for motivation and explanation, not for API contracts.
+- API contracts go in tables or bullet lists.
+
+---
+
 ## What is itc? Why use it?
 
-**itc** is an inter-thread communication library for Odin. It gives you mailboxes — typed message queues where ownership is explicit and transfer is zero-copy.
+**itc** is an inter-thread communication library for Odin.
+It gives you mailboxes — typed message queues where ownership is explicit and transfer is zero-copy.
 
-The mailbox idea goes back to the actor model (1973). The core insight: threads should not share memory — they should pass messages. When a message moves from one thread to another, exactly one thread owns it at any moment. No locks on the message itself. No copies.
+The mailbox idea goes back to the actor model (1973).
+Core insight: threads should not share memory — they should pass messages.
+When a message moves from one thread to another, exactly one thread owns it at any moment.
+No locks on the message itself.
+No copies.
 
-**Why not channels?** Odin's built-in channels are fine for many uses. itc helps when they don't fit:
+**Why not channels?**
+Odin's built-in channels are fine for many uses.
+itc helps when they don't fit:
 
 - **Zero allocation on the hot path** — items are recycled through a pool, not re-allocated for every message.
 - **Intrusive nodes** — the queue link lives inside your struct, not in a separate heap node. One allocation per item, ever.
@@ -23,7 +56,8 @@ The mailbox idea goes back to the actor model (1973). The core insight: threads 
 - **Controlled shutdown** — `mbox_close` returns all in-flight items as a drainable list. Nothing is leaked.
 - **Type-erased transport** — pool and mailbox operate on `^PolyNode` only. The concrete type lives only in your code.
 
-If channels work for you — use them. itc helps when they don't.
+If channels work for you — use them.
+itc helps when they don't.
 
 ---
 
@@ -84,7 +118,9 @@ Progress :: struct {
 
 `using` promotes fields upward: `chunk.id == chunk.poly.id`, `chunk.next == chunk.poly.next`.
 
-**Offset 0 rule** — enforced by convention. The cast `(^Chunk)(node)` is valid only if `PolyNode` is first. itc has no compile-time check for this.
+**Offset 0 rule** — enforced by convention.
+The cast `(^Chunk)(node)` is valid only if `PolyNode` is first.
+itc has no compile-time check for this.
 
 ### Intrusive
 
@@ -105,19 +141,33 @@ An **intrusive** queue puts the link inside your struct:
     your fields...
 ```
 
-With `using poly: PolyNode` at offset 0, your struct *is* the node. No wrapper. No extra allocation. No extra pointer hop.
+With `using poly: PolyNode` at offset 0, your struct *is* the node.
+No wrapper. No extra allocation. No extra pointer hop.
 
-`PolyNode` is itc's intrusive node. Pool and Mailbox operate on `^PolyNode` — which is also `^YourStruct` when offset 0 holds. The cast is safe because you placed `PolyNode` first.
+`PolyNode` is itc's intrusive node.
+Pool and Mailbox operate on `^PolyNode` — which is also `^YourStruct` when offset 0 holds.
+The cast is safe because you placed `PolyNode` first.
 
-**Consequence** — an item lives in exactly one place at a time. It cannot be in two queues simultaneously. Ownership is structural, not tracked by a flag.
+`list.Node` has exactly one `prev` and one `next`.
+Linking an item into two lists simultaneously corrupts both.
+An item lives in exactly one place at a time — enforced by the link structure, not by a flag.
 
 ### Type Erased
 
-Pool and Mailbox do not know what types they carry. They receive `^PolyNode`, store `^PolyNode`, return `^PolyNode`. They are pipes.
+Pool and Mailbox do not know what types they carry.
+They receive `^PolyNode`, store `^PolyNode`, return `^PolyNode`.
+They are pipes.
 
-All concrete type knowledge lives in user code — in `factory`, `on_get`, `on_put`, `dispose`, and in the receiver's `switch` statement. `PolyNode.id` is the discriminator that makes the cast safe.
+All concrete type knowledge lives in user code — in `factory`, `on_get`, `on_put`, `dispose`, and in the receiver's `switch` statement.
 
-This is the same pattern Odin's stdlib uses throughout: `thread.create` takes `data: rawptr`, `context.user_ptr` is `rawptr`, `mem.Allocator` passes `rawptr`. The type disappears at the boundary and reappears in the implementation.
+`PolyNode.id` is the discriminator that makes the cast safe.
+
+This is the same pattern Odin's stdlib uses throughout:
+- `thread.create` takes `data: rawptr`
+- `context.user_ptr` is `rawptr`
+- `mem.Allocator` passes `rawptr`.
+
+The type disappears at the boundary and reappears in the implementation.
 
 ```odin
 // Pool side — type-erased
@@ -127,19 +177,67 @@ pool_get(&p, int(FlowId.Chunk), .Recycle_Or_Alloc, &m)  // returns ^PolyNode
 c := (^Chunk)(m.?)   // safe because factory stamped id = FlowId.Chunk and placed PolyNode at offset 0
 ```
 
-The id is the contract. Zero is always invalid. Unknown id panics. Known id → safe cast.
+The id is the contract:
+- Zero is always invalid.
+- Unknown id panics.
+- Known id → safe cast.
+
+### ^Maybe(^PolyNode) — ownership at the API boundary
+
+Every itc API passes items as `^Maybe(^PolyNode)`.
+The `Maybe` value tracks who owns the item right now.
+
+```
+m: Maybe(^PolyNode)
+
+m^ == nil                       m^ != nil
+┌───────────┐                   ┌───────────┐
+│    nil    │  ← not yours      │   ptr ────┼──► [ PolyNode | your fields ]
+└───────────┘                   └───────────┘
+                                     you own this — must transfer, recycle, or dispose
+```
+
+**Transfer via `mbox_send`:**
+
+```
+before send                     after send
+┌───────────┐                   ┌───────────┐
+│   ptr ────┼──► [item]         │    nil    │   [item] → now in mailbox queue
+└───────────┘                   └───────────┘
+  m^ != nil (yours)               m^ == nil (transferred)
+```
+
+**Receive via `mbox_wait_receive`:**
+
+```
+before receive                  after receive
+┌───────────┐                   ┌───────────┐
+│    nil    │                   │   ptr ────┼──► [item]   ← dequeued from mailbox
+└───────────┘                   └───────────┘
+  out^ == nil (empty)             out^ != nil (yours now)
+```
+
+Two levels, two mechanisms:
+- **`list.Node`** — structural: one `prev`/`next`, a node cannot be in two queues at once
+- **`Maybe`** — contractual: nil/non-nil tells every API call who holds the item right now
 
 ---
 
 ## Participants
 
-itc has five participant roles. Only one of them — **Master** — knows concrete types.
+itc has five participant roles.
+Only one of them — **Master** — knows concrete types.
 
 ### Items
 
-User-defined structs with `PolyNode` embedded at offset 0 via `using`. Examples: `Chunk`, `Progress`, `Command`.
+User-defined structs with `PolyNode` embedded at offset 0 via `using`.
+Examples:
+- `Chunk`
+- `Progress`
+- `Command`
 
-Items travel through the system as `^PolyNode`. Only the Master that allocated or received them casts back to the concrete type.
+Items travel through the system as `^PolyNode`.
+Only the Master that allocated or received them casts back to the concrete type.
 
 ```odin
 Chunk :: struct {
@@ -151,21 +249,46 @@ Chunk :: struct {
 
 ### Pool
 
-A type-erased recycler. Holds free items as `^PolyNode`. Hands them out via `pool_get`, takes them back via `pool_put`. Knows nothing about what is inside the items.
+A type-erased recycler:
+- Holds free items as `^PolyNode`
+- Hands them out via `pool_get`
+- Takes them back via `pool_put`
+- Knows nothing about what is inside the items
 
-All lifecycle logic (allocation, reset, backpressure, disposal) is delegated to `FlowPolicy` hooks that live in user code.
+All lifecycle logic is delegated to `FlowPolicy` hooks that live in user code:
+- allocation
+- reset
+- backpressure
+- disposal
 
 ### Mailbox
 
-A type-erased transporter. Moves `^PolyNode` from one Master to another across thread boundaries. Blocking, with optional timeout. Supports interrupt and close.
+A type-erased transporter.
+Moves `^PolyNode` from one Master to another across thread boundaries.
+Blocking, with optional timeout.
+Supports interrupt and close.
 
-Mailbox knows nothing about item types. It holds ownership during transit and releases it to the receiver on success.
+Mailbox knows nothing about item types.
+It holds ownership during transit and releases it to the receiver on success.
 
 ### Master
 
-A user struct that runs on a thread. The only participant that knows concrete types.
+A user struct that runs on a thread.
+The only participant that knows concrete types.
 
-Master owns the pools and mailboxes that belong to its domain. It calls `pool_get` to acquire items, fills them, sends via `mbox_send`. On the receive side it calls `mbox_wait_receive`, switches on `id`, casts to the concrete type, processes, and returns via `pool_put`.
+Master owns the pools and mailboxes that belong to its domain.
+
+Send side:
+- calls `pool_get` to acquire an item
+- fills it
+- sends via `mbox_send`
+
+Receive side:
+- calls `mbox_wait_receive`
+- switches on `id`
+- casts to concrete type
+- processes
+- returns via `pool_put`
 
 Master lives on the heap. It is the unit of work in itc.
 
@@ -179,7 +302,9 @@ Master :: struct {
 
 ### Thread
 
-A thin container that runs exactly one Master. It holds only `^Master`. It declares no itc objects itself — those belong to Master.
+A thin container that runs exactly one Master.
+It holds only `^Master`.
+It declares no itc objects itself — those belong to Master.
 
 ```odin
 // Thread proc
@@ -201,7 +326,11 @@ mbox_send(&inbox, &m)         ──────►      switch m.?.id
                                            pool_put(&p, &m)
 ```
 
-**Why ownership matters here:** Mailbox and Pool are opaque — they cannot track what type they hold. The Master is the only actor that can safely cast `^PolyNode` back to a concrete type. This is why only one Master should hold a given item at any moment, and why the `^Maybe(^PolyNode)` contract (nil = you don't own it) is enforced at every API boundary.
+**Why ownership matters here:**
+- Mailbox and Pool are opaque — they cannot track what type they hold.
+- Master is the only actor that can safely cast `^PolyNode` back to a concrete type.
+- Only one Master should hold a given item at any moment.
+- The `^Maybe(^PolyNode)` contract (nil = you don't own it) is enforced at every API boundary.
 
 ---
 
@@ -243,7 +372,8 @@ Not for all, but for most cases.
 
 ## Mailbox API
 
-Mailbox moves items between Masters (threads). It is type-erased — operates on `^PolyNode` only.
+Mailbox moves items between Masters (threads).
+Type-erased — operates on `^PolyNode` only.
 
 ### Types
 
@@ -299,7 +429,8 @@ mbox_send :: proc(mb: ^Mailbox, m: ^Maybe(^PolyNode)) -> SendResult
 | `.Ok` | `nil` — enqueued, ownership transferred |
 | `.Closed`, `.Invalid` | unchanged — caller still owns |
 
-**Always check the return value.** On non-Ok, the item is still yours — dispose or retry.
+**Always check the return value.**
+On non-Ok, the item is still yours — dispose or retry.
 
 ### wait_receive — blocking receive, with timeout
 
@@ -323,7 +454,8 @@ mbox_wait_receive :: proc(mb: ^Mailbox, out: ^Maybe(^PolyNode), timeout: time.Du
 | `.Ok` | non-nil — dequeued, ownership transferred to caller |
 | `.Closed`, `.Interrupted`, `.Timeout`, `.Invalid` | unchanged — caller owns nothing |
 
-**Always check the return value.** On non-Ok, `out^` is unchanged (nil) — do not proceed.
+**Always check the return value.**
+On non-Ok, `out^` is unchanged (nil) — do not proceed.
 
 ### interrupt — unblock a waiting receiver
 
@@ -331,9 +463,12 @@ mbox_wait_receive :: proc(mb: ^Mailbox, out: ^Maybe(^PolyNode), timeout: time.Du
 mbox_interrupt :: proc(mb: ^Mailbox) -> IntrResult
 ```
 
-Wakes one thread waiting in `mbox_wait_receive`. The receiver returns `.Interrupted`.
+Wakes one thread waiting in `mbox_wait_receive`.
+The receiver returns `.Interrupted`.
 
-The interrupted flag is **self-clearing**: `mbox_wait_receive` clears it when it returns `.Interrupted`. A subsequent call to `mbox_wait_receive` will block normally.
+The interrupted flag is **self-clearing**:
+- `mbox_wait_receive` clears it when it returns `.Interrupted`.
+- A subsequent call to `mbox_wait_receive` will block normally.
 
 | Result | Meaning |
 |--------|---------|
@@ -382,9 +517,11 @@ for {
 }
 ```
 
-> Key points: `.Interrupted` delivers no message — `m` remains nil. The receiver must loop
-> back to `mbox_wait_receive`. The interrupted flag is self-clearing — no explicit reset needed.
-> Use a shared atomic or channel to communicate *what* changed; interrupt only says "go look".
+Key points:
+- `.Interrupted` delivers no message — `m` remains nil.
+- The receiver must loop back to `mbox_wait_receive`.
+- The interrupted flag is self-clearing — no explicit reset needed.
+- Use a shared atomic or channel to communicate *what* changed; interrupt only says "go look".
 
 ### close
 
@@ -397,7 +534,8 @@ mbox_close :: proc(mb: ^Mailbox) -> list.List
 - Returns all items still in the queue as a `list.List`.
 - Returns an empty list if already closed — idempotent.
 
-**Caller must drain the returned list.** Walk via `list.pop_front`, cast each `^list.Node` to `^PolyNode`, dispose:
+**Caller must drain the returned list.**
+Walk via `list.pop_front`, cast each `^list.Node` to `^PolyNode`, dispose:
 
 ```odin
 remaining := mbox_close(&mb)
@@ -411,14 +549,20 @@ for {
 }
 ```
 
-The cast `(^PolyNode)(raw)` is safe because every item in the mailbox has `PolyNode` at offset 0 — the `list.Node` field that `list.List` tracks is the first field of `PolyNode`.
+The cast `(^PolyNode)(raw)` is safe because:
+- Every item in the mailbox has `PolyNode` at offset 0.
+- The `list.Node` field that `list.List` tracks is the first field of `PolyNode`.
 
 ---
 
 ## Pool API
 
-Pool holds reusable items. Type-erased — operates on `^PolyNode` only.
-Pool is mechanism only. All lifecycle decisions (allocation, backpressure, disposal) live in `FlowPolicy`.
+Pool holds reusable items.
+Type-erased — operates on `^PolyNode` only.
+Mechanism only — all lifecycle decisions live in `FlowPolicy`:
+- allocation
+- backpressure
+- disposal
 
 ### Types
 
@@ -469,13 +613,16 @@ FlowPolicy :: struct {
 }
 ```
 
-**`ctx` is runtime** — cannot be set in a `::` compile-time constant. Set it before calling `pool_init`.
+**`ctx` is runtime** — cannot be set in a `::` compile-time constant.
+Set it before calling `pool_init`.
 
-All four proc fields are optional. `nil` = default behavior (factory required for allocation to work).
+All four proc fields are optional.
+`nil` = default behavior (factory required for allocation to work).
 
 ### dispose hook naming
 
-`FlowPolicy.dispose` is the field name. The user writes the implementation and conventionally names it `flow_dispose`:
+`FlowPolicy.dispose` is the field name.
+The user writes the implementation and conventionally names it `flow_dispose`:
 
 ```odin
 // User implementation — any name works, flow_dispose is conventional
@@ -506,7 +653,7 @@ pool_destroy :: proc(p: ^Pool)
 
 `ids`: complete set of valid item ids for this pool. All must be > 0. Non-empty.
 
-`pool_destroy` behavior:
+`pool_destroy` algorithm:
 1. Drains all free-lists.
 2. Calls `policy.dispose` on every drained node.
 3. Frees internal accounting.
@@ -537,7 +684,8 @@ pool_get :: proc(p: ^Pool, id: int, mode: Pool_Get_Mode, out: ^Maybe(^PolyNode))
 pool_recycle_wait :: proc(p: ^Pool, id: int, out: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
 ```
 
-Equivalent to `pool_get(.Recycle_Only)` but with blocking. Never calls `factory` — only recycles from the free-list.
+Equivalent to `pool_get(.Recycle_Only)` but with blocking.
+Never calls `factory` — only recycles from the free-list.
 
 | `timeout` | Behavior |
 |-----------|----------|
@@ -568,8 +716,9 @@ case .Out_Of_Memory, .Already_In_Use:
 }
 ```
 
-> Key point: `pool_recycle_wait` never calls `factory` — it only recycles from the free-list.
-> If `pool_destroy` is called while a thread is waiting, all waiters wake and receive `.Closed`.
+Key points:
+- `pool_recycle_wait` never calls `factory` — it only recycles from the free-list.
+- If `pool_destroy` is called while a thread is waiting, all waiters wake and receive `.Closed`.
 
 ### put — return to pool
 
@@ -577,7 +726,7 @@ case .Out_Of_Memory, .Already_In_Use:
 pool_put :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
 ```
 
-Exact algorithm — in this order:
+Algorithm — in this order:
 
 1. Check `m.?.id`:
    - `id == 0` → **PANIC** (zero is always invalid, system-wide)
@@ -586,7 +735,11 @@ Exact algorithm — in this order:
 3. Call `policy.on_put(ctx, alloc, in_pool_count, m)` — **outside lock**
 4. If `m^` is still non-nil → push to free-list, increment count, set `m^ = nil` (under lock)
 
-**After `pool_put` returns, `m^` is always nil.** Either recycled (step 4) or consumed by `on_put` (step 3). The panic in step 1 means no silent "what happens on unknown id" — it crashes immediately.
+After `pool_put` returns, `m^` is always nil:
+- Recycled (step 4), or
+- Consumed by `on_put` (step 3).
+
+The panic in step 1 means no silent "what happens on unknown id" — it crashes immediately.
 
 > **Closed pool:** If `pool_destroy` has been called, `pool_put` calls `policy.dispose` (or `free`) and
 > sets `m^ = nil`. It does not panic. Items are not silently leaked.
@@ -606,7 +759,9 @@ Three outcomes when `defer pool_put` fires:
 - `m^ != nil` (item was not transferred) → `pool_put` recycles or `on_put` disposes
 - `m^ != nil` with unknown id or zero id → `pool_put` panics — programming error, surfaces immediately
 
-**Safe for valid ids. Panics on unknown or zero id.** The panic is the correct behavior — it tells you exactly where the bug is.
+Safe for valid ids.
+Panics on unknown or zero id.
+The panic is the correct behavior — it tells you exactly where the bug is.
 
 ### put_all — return a chain
 
@@ -645,9 +800,18 @@ for {
 
 ### Why panic on unknown id?
 
-A foreign id on `pool_put` is almost always a bug: wrong cast earlier, wrong pool, memory corruption, or use-after-free. Silent recycling would create silent starvation or use-after-free later. A loud panic during development is far cheaper than hunting ghosts in production.
+A foreign id on `pool_put` is almost always a bug:
+- wrong cast earlier
+- wrong pool
+- memory corruption
+- use-after-free
 
-Zero is always invalid because it is the zero value of `int` — an uninitialized `PolyNode` would have `id == 0`. Panicking on zero catches missing `factory` stamps immediately.
+Silent recycling would create silent starvation or use-after-free later.
+A loud panic during development is far cheaper than hunting ghosts in production.
+
+Zero is always invalid because it is the zero value of `int`.
+An uninitialized `PolyNode` would have `id == 0`.
+Panicking on zero catches missing `factory` stamps immediately.
 
 ### Example
 
@@ -665,7 +829,9 @@ pool_init(&p, policy, {int(FlowId.Chunk), int(FlowId.Progress)}, alloc)
 
 ## FlowPolicy Hooks — Reference
 
-All hooks are called **outside the pool mutex**. This is guaranteed. Hooks may safely access `ctx` which may contain application-level locks, without deadlock risk.
+All hooks are called **outside the pool mutex**.
+This is guaranteed.
+Hooks may safely access `ctx` — which may contain application-level locks — without deadlock risk.
 
 ### factory
 
@@ -674,7 +840,11 @@ factory :: proc(ctx: rawptr, alloc: mem.Allocator, id: int, in_pool_count: int) 
 ```
 
 Called when a new allocation is needed (`Recycle_Or_Alloc` miss or `Alloc_Only`).
-Must allocate the correct concrete type for `id`, stamp `node.id = id`, return `^PolyNode`.
+
+Must:
+- Allocate the correct concrete type for `id`
+- Stamp `node.id = id`
+- Return `^PolyNode`
 
 ```odin
 flow_factory :: proc(ctx: rawptr, alloc: mem.Allocator, id: int, in_pool_count: int) -> (^PolyNode, bool) {
@@ -700,8 +870,11 @@ flow_factory :: proc(ctx: rawptr, alloc: mem.Allocator, id: int, in_pool_count: 
 on_get :: proc(ctx: rawptr, m: ^Maybe(^PolyNode))
 ```
 
-Called before `pool_get` returns a **recycled** item to caller. Not called for freshly allocated items.
-Use for zeroing or sanitizing stale data. **Must NOT free internal resources.**
+Called before `pool_get` returns a **recycled** item to caller.
+Not called for freshly allocated items.
+
+Use for zeroing or sanitizing stale data.
+**Must NOT free internal resources.**
 
 ```odin
 flow_on_get :: proc(ctx: rawptr, m: ^Maybe(^PolyNode)) {
@@ -853,7 +1026,10 @@ case .Progress:
 
 **Why both `defer pool_put` and per-case `pool_put`?**
 
-The per-case `pool_put` is the normal path — it sets `m^ = nil`. After that, the deferred `pool_put` fires and sees `m^ == nil`, so it is a no-op. The `defer` is a safety net for paths you did not anticipate (added cases, early returns, panics in process procs). This is belt and suspenders — intentional.
+- Per-case `pool_put` is the normal path — it sets `m^ = nil`.
+- After that, the deferred `pool_put` fires and sees `m^ == nil` — becomes a no-op.
+- The `defer` is a safety net for paths you did not anticipate: added cases, early returns, panics in process procs.
+- Belt and suspenders — intentional.
 
 ### Shutdown
 
@@ -890,7 +1066,8 @@ for _ in 0..<100 {
 }
 ```
 
-`Alloc_Only` skips the free-list and always calls `factory`. Here we use it to force 100 fresh allocations into the pool.
+`Alloc_Only` skips the free-list and always calls `factory`.
+Used here to force 100 fresh allocations into the pool.
 
 ---
 

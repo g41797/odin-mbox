@@ -163,7 +163,9 @@ Main thread
 
 No shared arrays.
 No locks in your code.
-Just “get → fill → send” and “wait → process → put”.
+Just
+- “get → fill → send” and
+- “wait → process → put”.
 
 ---
 
@@ -208,7 +210,7 @@ Add one worker thread.
 Now compression runs in background.
 
 If your task requires several workers - add.
-Remember Mailbox supports safe multithreaded  [FanIn-FanOut](https://medium.com/@kapoorjasdeep/fan-out-and-fan-in-the-unsung-heroes-of-system-design) patterns.
+Remember Mailbox supports safe multithreaded  [FanIn-FanOut](https://medium.com/@kapoorjasdeep/fan-out-and-fan-in-the-unsung-heroes-of-system-design-2f8a46933518) patterns.
 
 Open Doll 4.
 Change the main loop to use LoopMailbox.

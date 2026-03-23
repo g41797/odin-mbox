@@ -35,15 +35,15 @@
 
 ## Layer 1 — complete
 
-**Path:** `dolls/layer1/`
+**Path:** `dolls/doll1/`
 
-**Note:** layer1 contains `hooks` (`ctor`, `dtor` proc fields only).
+**Note:** doll1 contains `hooks` (`ctor`, `dtor` proc fields only).
 Per spec, hooks belong at layer2.
-This is accepted — layer1 is a slightly richer layer1, all tests pass.
+This is accepted — doll1 is a slightly richer doll1, all tests pass.
 
 ### Packages
 
-| Package | Path | Import path (from inside layer1) | Contents |
+| Package | Path | Import path (from inside doll1) | Contents |
 |---------|------|----------------------------------|----------|
 | item | `item/` | `"./item"` (local) | `PolyNode`, `Maybe` — foundation types |
 | hooks | `hooks/` | `"../item"` (item is its dependency) | `Ctor_Dtor` struct — ctor, dtor proc fields |
@@ -68,13 +68,13 @@ Ctor_Dtor :: struct {
 }
 ```
 
-Note: layer1 `Ctor_Dtor` has `ctor` and `dtor` only — create and destroy, no pool logic.
+Note: doll1 `Ctor_Dtor` has `ctor` and `dtor` only — create and destroy, no pool logic.
 `PoolHooks` (layer3+) adds `ctx rawptr`, `in_pool_count int`, merges create/reuse into `on_get`.
 
 ### Build
 
 ```sh
-cd dolls/layer1 && ./build_and_test.sh
+cd dolls/doll1 && ./build_and_test.sh
 ```
 
 Runs 5 opt levels (`none minimal size speed aggressive`) + doc smoke test.
@@ -93,7 +93,7 @@ with a non-generic `Queue` working on `^PolyNode`.
 **Why doll 2:**
 - Simpler than pool + mailbox (no blocking, no pool, no lifecycle hooks needed)
 - Usable for simple MT producer-consumer systems on its own
-- Builds on layer1's `PolyNode` — fits the spiral type contract
+- Builds on doll1's `PolyNode` — fits the spiral type contract
 - Foundation for `loop_mbox` (a future doll)
 
 ### API
@@ -113,7 +113,7 @@ Caller wraps for lifecycle tracking when needed: `m: Maybe(^PolyNode) = pop(&q)`
 
 ```odin
 // package mpsc  (dolls/layer2/mpsc/)
-import item "../item"   // PolyNode from layer1
+import item "../item"   // PolyNode from doll1
 
 Queue :: struct {
     head: ^list.Node,
@@ -127,7 +127,7 @@ Queue :: struct {
 
 ```
 dolls/layer2/
-├── item/              — copy from layer1/item/ (PolyNode dependency, doll self-contained)
+├── item/              — copy from doll1/item/ (PolyNode dependency, doll self-contained)
 ├── mpsc/              — PolyNode-adapted queue (~same size as mpsc/queue.odin)
 ├── examples/
 │   └── mpsc/          — MT example: N producers, 1 consumer, dispatch on PolyNode.id

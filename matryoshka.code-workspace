@@ -5,8 +5,8 @@
             "path": "."
         },
         {
-            "name": "layer1",
-            "path": "dolls/layer1"
+            "name": "doll1",
+            "path": "dolls/doll1"
         },
     ],
     "settings": {}

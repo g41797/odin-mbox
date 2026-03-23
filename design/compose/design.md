@@ -1233,7 +1233,7 @@ ptr, ok := m.?
 Safe. No panic.
 `ok` is `false` if `m == nil`. `ptr` is only valid when `ok` is `true`.
 
-From `dolls/layer1/tests/hooks/hooks_test.odin`:
+From `dolls/doll1/tests/hooks/hooks_test.odin`:
 
 ```odin
 m := fp.ctor(int(ex.ItemId.Event))

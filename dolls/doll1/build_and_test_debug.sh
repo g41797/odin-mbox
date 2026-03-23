@@ -8,7 +8,7 @@ NC=$'\033[0m'
 
 OPTS=(none)
 
-echo "${BLUE}Starting layer1 local CI...${NC}"
+echo "${BLUE}Starting doll1 local CI...${NC}"
 
 if ! command -v odin >/dev/null 2>&1; then
     echo "Error: odin compiler not found in PATH"

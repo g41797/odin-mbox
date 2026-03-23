@@ -7,7 +7,7 @@ import item "../item"
 //
 // Both fields are required for useful operation.
 // Note: PoolHooks (layer3+) adds ctx, in_pool_count params and merges
-// create/reuse into on_get — not needed at layer1.
+// create/reuse into on_get — not needed at doll1.
 Ctor_Dtor :: struct {
 	// ctor allocates the correct type for id, sets id, returns ^PolyNode.
 	// Returns nil on failure or unknown id.

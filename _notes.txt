@@ -40,14 +40,14 @@ Run under workspace
     EXPLORER
     ├── root/                    ← .vscode/ at repo root
     │   ├── mbox/, mpsc/, tests/ ...
-    └── layer1/                  ← dolls/layer1/.vscode/
+    └── doll1/                  ← dolls/doll1/.vscode/
         ├── item/, hooks/
         └── tests/
 
     F5 in a root file   → "Debug Tests" → picks from: mpsc/, wakeup/, tests/, tests/mbox/ ...
-    F5 in a layer1 file → "Debug Tests" → picks from: tests/item/, tests/hooks/
+    F5 in a doll1 file → "Debug Tests" → picks from: tests/item/, tests/hooks/
 
-    ${workspaceFolder} resolves to the correct root for each — repo root or dolls/layer1/ — so paths and binaries stay separate.
+    ${workspaceFolder} resolves to the correct root for each — repo root or dolls/doll1/ — so paths and binaries stay separate.
 
     When layer2 arrives: add { "name": "layer2", "path": "dolls/layer2" } to the .code-workspace file and create
     dolls/layer2/.vscode/.

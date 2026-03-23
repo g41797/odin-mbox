@@ -1,49 +1,13 @@
 # matryoshka — Normative Specification
 
-====================================================
-Author notes - read, analyze, ask questions, proceed
-====================================================
-
-
-
----------------------------------------
-IF NOTE ABOVE GENERIC - ADD IT TO RULES
----------------------------------------
-
-====================================================
-
 
 > **This is the single source of truth.**
 > All API signatures, contracts, and rules are defined here.
 > When this file contradicts any other document — this file wins.
 
-Cross-reference: [Golden Contract](../sync/golden-contract.md) — read it first if you haven't.
 
 ---
 
-## Spiral
-
-itc is a Matryoshka — nested layers, each complete on its own.
-
-You enter at the layer you need.
-You stop when you have enough.
-You go deeper only when the next layer solves a real problem you have right now.
-
-| Layer | What you have | What you don't need yet |
-|-------|--------------|------------------------|
-| 1 | `PolyNode` + `Maybe` | everything else |
-| 2 | + hooks (`ctor`, `dtor`) | pool, mailbox |
-| 3 | + simple pool (wrapper around hooks) | extended pool, mailbox |
-| 4 | + extended pool (free-list, flow control) | mailbox |
-| 5 | + mailbox | — full itc |
-
-**The rule:** move to the next layer because you need it — not because it is there.
-
-> This is an internal design principle, not user documentation.
-> When writing examples, docs, or new features — always ask:
-> which is the minimum layer this belongs to?
-
----
 
 ## Document Writing Rules
 
@@ -52,6 +16,9 @@ When editing this document, follow these rules:
 **Sentences**
 - One idea per line.
 - Split compound sentences — do not chain clauses with commas.
+- Do not pack a full explanation into one sentence.
+- Use bullets or short sequential sentences instead.
+- If you feel the urge to write "which", "that", or "because" mid-sentence — stop. Split.
 
 **Lists**
 - Use bullet lists for sets of items, attributes, or steps.
@@ -78,15 +45,38 @@ When editing this document, follow these rules:
 
 ---
 
-## What is itc?
 
-Empty by intent.
+## Author notes - read, analyze, ask questions, proceed
+
 
 ---
 
-## Decision Log
+## Why Matryoshka.
 
-None. Place for new decisions.
+Because Matryoshka has nested dolls(layers), each complete on its own.
+
+You enter at the layer you need.
+You stop when you have enough.
+You go deeper only when the next layer solves a real problem you have right now.
+
+| Layer | What you have | What you don't need yet |
+|-------|--------------|------------------------|
+| 1 | `PolyNode` + `Maybe` | everything else |
+| 2 | + Pool (`PoolHooks`: `on_get`, `on_put`) | extended pool, mailbox |
+| 3 | + extended pool (free-list, flow control) | mailbox |
+| 4 | + mailbox | — full itc |
+
+**The rule:** move to the next layer because you need it — not because it is there.
+
+> This is an internal design principle, not user documentation.
+> When writing examples, docs, or new features — always ask:
+> which is the minimum layer this belongs to?
+
+Why itc ?
+- _Matryoshka_ - brand name(look&feel)
+- _itc_(inter thread communication) - functionality.
+
+But main reason - itc shorter.
 
 ---
 
@@ -154,8 +144,8 @@ With `using poly: PolyNode` at offset 0, your struct *is* the node.
 No wrapper. No extra allocation. No extra pointer hop.
 
 `PolyNode` is itc's intrusive node.
-Pool and Mailbox operate on `^PolyNode` — which is also `^YourStruct` when offset 0 holds.
-The cast is safe because you placed `PolyNode` first.
+itc services operate on `^PolyNode` — which is also `^YourStruct` when offset 0 holds.
+The cast is safe because of the intrusive list pattern — `PolyNode` at offset 0.
 
 `list.Node` has exactly one `prev` and one `next`.
 Linking an item into two lists simultaneously corrupts both.
@@ -163,9 +153,8 @@ An item lives in exactly one place at a time — enforced by the link structure,
 
 ### Type Erased
 
-Pool and Mailbox do not know what types they carry.
+itc services do not know what types they carry.
 They receive `^PolyNode`, store `^PolyNode`, return `^PolyNode`.
-They are pipes.
 
 All concrete type knowledge lives in user code — in `on_get`, `on_put`, and in the receiver's `switch` statement.
 
@@ -179,11 +168,11 @@ This is the same pattern Odin's stdlib uses throughout:
 The type disappears at the boundary and reappears in the implementation.
 
 ```odin
-// Pool side — type-erased
+// Service side — type-erased
 pool_get(&p, int(FlowId.Chunk), .Available_Or_New, &m)  // returns ^PolyNode
 
 // User side — typed
-c := (^Chunk)(m.?)   // safe because on_get stamped id = FlowId.Chunk and placed PolyNode at offset 0
+c := (^Chunk)(m.?)   // safe: intrusive list pattern — PolyNode at offset 0, id stamped by on_get
 ```
 
 The id is the contract:
@@ -193,7 +182,7 @@ The id is the contract:
 
 ### ^Maybe(^PolyNode) — ownership at the API boundary
 
-Every itc API passes items as `^Maybe(^PolyNode)`.
+Every itc service API passes items as `^Maybe(^PolyNode)`.
 The `Maybe` value tracks who owns the item right now.
 
 ```
@@ -206,24 +195,24 @@ m^ == nil                       m^ != nil
                                      you own this — must transfer, recycle, or dispose
 ```
 
-**Transfer via `mbox_send`:**
+**Transfer to a service:**
 
 ```
-before send                     after send
+before transfer                 after transfer
 ┌───────────┐                   ┌───────────┐
-│   ptr ────┼──► [item]         │    nil    │   [item] → now in mailbox queue
+│   ptr ────┼──► [item]         │    nil    │   [item] → now held by the service
 └───────────┘                   └───────────┘
-  m^ != nil (yours)               m^ == nil (transferred)
+  m^ != nil (yours)               m^ == nil (service owns it now)
 ```
 
-**Receive via `mbox_wait_receive`:**
+**Receive from a service:**
 
 ```
 before receive                  after receive
 ┌───────────┐                   ┌───────────┐
-│    nil    │                   │   ptr ────┼──► [item]   ← dequeued from mailbox
+│    nil    │                   │   ptr ────┼──► [item]   ← handed out by the service
 └───────────┘                   └───────────┘
-  out^ == nil (empty)             out^ != nil (yours now)
+  m^ == nil (empty)               m^ != nil (yours now)
 ```
 
 Two levels, two mechanisms:
@@ -236,6 +225,8 @@ Two levels, two mechanisms:
 
 itc has five participant roles.
 Only one of them — **Master** — knows concrete types.
+
+Not [_Doll Master_](https://www.imdb.com/title/tt0416853/) , just Master
 
 ### Items
 
@@ -400,7 +391,454 @@ Rules:
 
 ---
 
-→ Full table in [Golden Contract](../sync/golden-contract.md).
+## Pool API
+
+Pool holds reusable items.
+Type-erased — operates on `^PolyNode` only.
+Mechanism only — all lifecycle decisions live in `PoolHooks`:
+- allocation
+- flow control
+- disposal
+
+### THE FIRST RULE OF POOL
+
+You don't know pool yet. You haven't seen the APIs. Read this first. Remember it.
+
+Pool has many conditions, results, and rules.
+That is not a bug — it is the point.
+Pool tries to prevent almost every wrong combination before it becomes a silent failure.
+Pool is strong. Pool saves lives. *(We are serious about the first part.)*
+
+**The rule:** check the result of every API call.
+The table below tells you what "ok" looks like for each one.
+If it is not ok — fix the root cause. Do not retry the same mistake.
+
+| API | Returns | "Ok" means |
+|-----|---------|------------|
+| `pool_init` | nothing | no panic — bad input panics immediately |
+| `pool_get` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
+| `pool_get_wait` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
+| `pool_put` | nothing | `m^` is `nil` after the call — pool took it |
+| `pool_close` | `(list.List, ^PoolHooks)` | always succeeds — drain the returned list |
+
+For `pool_put`: if `m^` is still non-nil after the call, the pool is closed — you own the item, dispose manually.
+For `pool_get` / `pool_get_wait`: any result other than `.Ok` has a specific meaning — see the result table below.
+
+### Types
+
+```odin
+Pool :: struct {
+    ...............
+}
+
+Pool_Get_Mode :: enum {
+    Available_Or_New,  // existing item if available, otherwise create
+    New_Only,          // always create
+    Available_Only,    // existing item only — no creation, on_get not called if none stored
+}
+
+Pool_Get_Result :: enum {
+    Ok,             // item returned in m^
+    Not_Available,  // Available_Only: no item stored — on_get was not called
+    Not_Created,    // on_get ran and returned nil — may be deliberate or failure
+    Closed,         // pool is closed
+    Already_In_Use, // m^ != nil on entry — caller holds an unreleased item
+}
+```
+
+### PoolHooks
+
+```odin
+PoolHooks :: struct {
+    ctx:    rawptr,         // user context — carries master or any state; allocator too if hooks need it
+                            // may be nil — pool passes it as-is
+    ids:    [dynamic]int,   // user-owned; non-empty, all != 0; user deletes in freeMaster
+    on_get: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode)),
+    on_put: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode)),
+}
+```
+
+**`ctx` is runtime** — cannot be set in a `::` compile-time constant.
+Set it before calling `pool_init`.
+
+Both proc fields are required.
+
+### Init / Close
+
+```odin
+pool_init  :: proc(p: ^Pool, hooks: ^PoolHooks)
+pool_close :: proc(p: ^Pool) -> (list.List, ^PoolHooks)
+```
+
+`pool_close` contract:
+
+```odin
+nodes, h := pool_close(&p)
+```
+
+- Returns all items currently stored in the pool as `list.List`.
+- Returns `^PoolHooks` — the pointer passed to `pool_init`.
+- Pool zeros its internal hooks pointer on close — post-close it holds no reference to hooks or ids.
+- Post-close `pool_get`/`pool_put` return `.Closed` or no-op.
+- Pool does not call `on_put` during close. User drains manually.
+
+### Pool borrows hooks — heap Master pattern
+
+`pool_init` takes `^PoolHooks`. Pool stores the pointer. User keeps the struct.
+
+`Master` is always heap-allocated. `newMaster` and `freeMaster` are always written together — they are a pair.
+
+```odin
+Master :: struct {
+    pool:  Pool,
+    hooks: PoolHooks,
+    alloc: mem.Allocator,
+    ...
+}
+
+newMaster :: proc(alloc: mem.Allocator) -> ^Master {
+    m := new(Master, alloc)
+    m.alloc = alloc
+    m.hooks = PoolHooks{
+        ctx    = m,
+        on_get = master_on_get,
+        on_put = master_on_put,
+    }
+    append(&m.hooks.ids, int(SomeId.A))  // populate ids before pool_init
+    append(&m.hooks.ids, int(SomeId.B))
+    pool_init(&m.pool, &m.hooks)
+    return m
+}
+
+freeMaster :: proc(master: ^Master) {
+    nodes, _ := pool_close(&master.pool)
+    // NOTE: dispose nodes before freeing other Master resources — dispose code may use Master fields.
+    for {
+        raw := list.pop_front(&nodes)
+        if raw == nil { break }
+        // dispose node — master knows how
+    }
+    // delete ids dynamic array (user-owned, populated before pool_init)
+    delete(master.hooks.ids)
+    alloc := master.alloc
+    free(master, alloc)
+}
+```
+
+`ctx` is set at runtime. Do not set it in a compile-time constant.
+
+### get — acquire ownership
+
+```odin
+pool_get :: proc(p: ^Pool, id: int, mode: Pool_Get_Mode, m: ^Maybe(^PolyNode)) -> Pool_Get_Result
+```
+
+| Mode | Behavior |
+|------|----------|
+| `.Available_Or_New` | check free-list; call `on_get` on hit or miss |
+| `.New_Only` | always call `on_get` with `m^==nil`; skip free-list |
+| `.Available_Only` | free-list only; return `.Not_Available` if empty — `on_get` not called |
+
+| Result | Meaning |
+|--------|---------|
+| `.Ok` | item acquired — `m^` set to item |
+| `.Not_Available` | `.Available_Only` and no item stored — `on_get` was not called |
+| `.Not_Created` | `on_get` ran and returned nil — may be deliberate or failure |
+| `.Closed` | pool is closed |
+| `.Already_In_Use` | `m^` was non-nil on entry — release current item first |
+
+#### Validation order
+
+Both `pool_get` and `pool_get_wait` apply the same entry checks:
+
+| Priority | Check | Result |
+|----------|-------|--------|
+| 1 | `id == 0` | **panic** — zero id is always a programming error |
+| 2 | `m^ != nil` | `.Already_In_Use` — caller holds an unreleased item |
+| 3 | pool closed | `.Closed` |
+| 4 | `id` not in registered set (open pool only) | **panic** — foreign id is a programming error |
+| 5 | proceed with get logic | — |
+
+### get_wait — block until item available
+
+```odin
+pool_get_wait :: proc(p: ^Pool, id: int, m: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
+```
+
+Equivalent to `pool_get(.Available_Only)` but with blocking.
+Never calls `on_get` — only waits for an item to be stored.
+
+`pool_get_wait` with timeout = 0 is the same as `pool_get` with `Available_Only`.
+
+| `timeout` | Behavior |
+|-----------|----------|
+| `== 0` | non-blocking — returns `.Not_Available` immediately if no item stored |
+| `< 0` | blocks forever — waits until an item of this `id` is put back or pool is closed |
+| `> 0` | blocks up to the duration — returns `.Not_Available` on expiry |
+
+| Result | Meaning |
+|--------|---------|
+| `.Ok` | item acquired — `m^` set to item |
+| `.Not_Available` | no item stored (non-blocking or timeout expired) |
+| `.Closed` | pool is closed, or `pool_close` called while waiting — all waiters wake and receive `.Closed` |
+
+```odin
+// Thread waiting for a token from a bounded pool
+m: Maybe(^PolyNode)
+switch pool_get_wait(&p, int(FlowId.Token), &m, -1) {
+case .Ok:
+    defer pool_put(&p, &m)
+    // ... use token ...
+case .Closed:
+    return  // pool is gone — shut down
+case .Not_Available:
+    // timeout expired (only if timeout > 0) — retry or give up
+}
+```
+
+Key points:
+- `pool_get_wait` never calls `on_get` — it only waits for stored items.
+- If `pool_close` is called while a thread is waiting, all waiters wake and receive `.Closed`.
+
+### put — return to pool
+
+```odin
+pool_put :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
+```
+
+Algorithm — in this order:
+
+1. Check `m.?.id`:
+   - `id == 0` → **PANIC** (zero is always invalid, system-wide)
+   - `id not in ids[]` → **PANIC** (not registered in this pool — programming error)
+     > **Implementation note:** Odin's `in` operator does not work on `[dynamic]int`. Use `slice.contains(hooks.ids[:], id)` or a linear scan.
+2. Get `in_pool_count` for this id (under lock, then unlock)
+3. Call `hooks.on_put(ctx, in_pool_count, m)` — **outside lock**
+4. If `m^` is still non-nil → push to free-list, increment count, set `m^ = nil` (under lock)
+
+Open pool → `on_put` decides: hook sets `m^=nil` (disposed) or leaves `m^!=nil` (stored).
+
+The panic in step 1 means no silent "what happens on unknown id" — it crashes immediately.
+
+> **Closed pool + valid id:** `pool_put` returns with `m^` still non-nil. Caller owns the item.
+> Must dispose manually. Does not panic. Items are not silently leaked.
+
+### defer pool_put — when is it safe?
+
+```odin
+m: Maybe(^PolyNode)
+if pool_get(&p, id, .Available_Or_New, &m) == .Ok {
+    defer pool_put(&p, &m)  // safety net
+    // ... work ...
+}
+```
+
+Three outcomes when `defer pool_put` fires:
+- `m^ == nil` (item was transferred via `mbox_send`) → `pool_put` is a no-op
+- `m^ != nil` (item was not transferred) → `pool_put` recycles or `on_put` disposes
+- `m^ != nil` with unknown id or zero id → `pool_put` panics — programming error, surfaces immediately
+
+Safe for valid ids.
+Panics on unknown or zero id.
+The panic is the correct behavior — it tells you exactly where the bug is.
+
+### put_all — return a chain
+
+```odin
+pool_put_all :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
+```
+
+Walks the linked list starting at `m^`, calling `pool_put` on each node.
+Panics on zero or unknown id in any node (same as `pool_put`).
+Used to drain a chain of items — typically after `mbox_close` returns remaining in-flight items:
+
+```odin
+remaining := mbox_close(&mb)
+
+for {
+    raw := list.pop_front(&remaining)
+    if raw == nil { break }
+    poly := (^PolyNode)(raw)
+    m: Maybe(^PolyNode) = poly
+    pool_put(&master.pool, &m)  // if pool closed, m^ stays non-nil — dispose manually
+}
+```
+
+---
+
+## ID System
+
+### Rules
+
+- Every item id must be != 0 (zero is reserved/invalid, system-wide)
+- `pool_init` reads valid ids from `hooks.ids` — user populates with `append` before calling `pool_init`
+- `pool_put` panics on `id == 0` (open or closed)
+- `pool_put` panics on unknown id only when the pool is **open** — post-close the pool holds no hooks and cannot validate ids; unknown id with closed pool leaves `m^` non-nil
+- `mbox_send` returns `.Invalid` if `m^.id == 0`
+- `on_get` stamps `node.id` at allocation time — `on_get` is one allocator, not the only one; the user sets id
+- Id values are user-defined integer constants — typically from an enum
+
+### Why panic on unknown id?
+
+A foreign id on `pool_put` is almost always a bug:
+- wrong cast earlier
+- wrong pool
+- memory corruption
+- use-after-free
+
+Silent recycling would create silent starvation or use-after-free later.
+A loud panic during development is far cheaper than hunting ghosts in production.
+
+Zero is always invalid because it is the zero value of `int`.
+An uninitialized `PolyNode` would have `id == 0`.
+Panicking on zero catches missing `on_get` id stamps immediately.
+
+### Example
+
+```odin
+FlowId :: enum int {
+    Chunk    = 1,  // must be != 0
+    Progress = 2,
+}
+
+// Registration: populate hooks.ids before pool_init
+append(&hooks.ids, int(FlowId.Chunk))
+append(&hooks.ids, int(FlowId.Progress))
+pool_init(&p, &hooks)
+```
+
+---
+
+## PoolHooks — Reference
+
+All hooks are called **outside the pool mutex**.
+This is guaranteed.
+Hooks may safely access `ctx` — which may contain application-level locks — without deadlock risk.
+
+### on_get
+
+```odin
+on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode))
+```
+
+Pool calls `on_get` on every `pool_get` — except `Available_Only` when no item is stored.
+
+| Entry state | Meaning | Hook must |
+|-------------|---------|-----------|
+| `m^ == nil` | no item available | create a new item, set `node.id = id`, set `m^` |
+| `m^ != nil` | recycled item | reinitialize for reuse |
+
+`in_pool_count`: number of items with this `id` currently idle (stored) in the pool — not total live objects. Hook may use it to decide whether to create or not.
+
+After `on_get`:
+
+| Exit state | Meaning |
+|------------|---------|
+| `m^ != nil` | item ready — pool returns `.Ok` to caller |
+| `m^ == nil` | pool returns `.Not_Created` to caller |
+
+`.Not_Created` is not always an error. Hook may return nil on purpose.
+
+`id` is always passed — needed for creation. Can also be read from `node.id` on recycle, but passing it avoids the cast.
+
+```odin
+master_on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode)) {
+    master := (^Master)(ctx)
+    if m^ == nil {
+        // no item available — create new one using master.alloc
+        switch FlowId(id) {
+        case .Chunk:
+            c := new(Chunk, master.alloc)
+            c.id = id
+            m^ = (^PolyNode)(c)
+        case .Progress:
+            p := new(Progress, master.alloc)
+            p.id = id
+            m^ = (^PolyNode)(p)
+        }
+    } else {
+        // recycled item — reinitialize using master fields
+        node := m^
+        switch FlowId(node.id) {
+        case .Chunk:    (^Chunk)(node).len = 0
+        case .Progress: (^Progress)(node).percent = 0
+        }
+    }
+}
+```
+
+### on_put
+
+```odin
+on_put :: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode))
+```
+
+Called during `pool_put`, outside lock.
+
+- `in_pool_count`: current count of items with this id currently idle (stored) in the pool — not total live objects. Use it to decide flow control.
+- If hook sets `m^ = nil` → item is disposed. Pool will not store it.
+- If hook leaves `m^ != nil` → pool stores it.
+
+```odin
+master_on_put :: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode)) {
+    master := (^Master)(ctx)
+    if m == nil || m^ == nil { return }
+    node := m^
+    #partial switch FlowId(node.id) {
+    case .Chunk:
+        if in_pool_count > 400 {
+            free((^Chunk)(node), master.alloc)
+            m^ = nil  // dispose — pool will not store
+        }
+    case .Progress:
+        if in_pool_count > 128 {
+            free((^Progress)(node), master.alloc)
+            m^ = nil  // dispose — pool will not store
+        }
+    }
+    // m^ still non-nil here → pool stores it
+}
+```
+
+---
+
+## Pre-allocating (Seeding the Pool)
+
+To avoid runtime latency, pre-allocate before starting threads:
+
+```odin
+master := newMaster(context.allocator)
+
+for _ in 0..<100 {
+    m: Maybe(^PolyNode)
+    if pool_get(&master.pool, int(FlowId.Chunk), .New_Only, &m) == .Ok {
+        pool_put(&master.pool, &m)  // put back immediately — goes to free-list
+    }
+}
+```
+
+`New_Only` always calls `on_get` with `m^==nil`, forcing creation even when items are stored.
+Used here to pre-allocate 100 fresh items into the pool.
+
+---
+
+## Pool Get Modes
+
+Mode is a per-call parameter of `pool_get`. Not a pool-wide setting.
+
+```odin
+// Normal operation — use stored item if available, create if not
+pool_get(&master.pool, int(FlowId.Chunk), .Available_Or_New, &m)
+
+// Force creation — use for seeding or when you want a guaranteed fresh item
+pool_get(&master.pool, int(FlowId.Chunk), .New_Only, &m)
+
+// Stored only — use in no-alloc paths (e.g. interrupt handlers)
+// Returns .Not_Available if no item stored — on_get not called
+if pool_get(&master.pool, int(FlowId.Chunk), .Available_Only, &m) != .Ok {
+    // no item stored — handle: skip, back off, or call pool_get_wait
+}
+```
 
 ---
 
@@ -589,377 +1027,6 @@ The cast `(^PolyNode)(raw)` is safe because:
 
 ---
 
-## Pool API
-
-Pool holds reusable items.
-Type-erased — operates on `^PolyNode` only.
-Mechanism only — all lifecycle decisions live in `PoolHooks`:
-- allocation
-- flow control
-- disposal
-
-### Types
-
-```odin
-Pool :: struct {
-    ...............
-}
-
-Pool_Get_Mode :: enum {
-    Available_Or_New,  // existing item if available, otherwise create
-    New_Only,          // always create
-    Available_Only,    // existing item only — no creation, on_get not called if none stored
-}
-
-Pool_Get_Result :: enum {
-    Ok,            // item returned in out^
-    Not_Available, // Available_Only: no item stored — on_get was not called
-    Not_Created,   // on_get ran and returned nil — may be deliberate or failure
-    Closed,        // pool is closed
-}
-```
-
-### PoolHooks
-
-```odin
-PoolHooks :: struct {
-    ctx:    rawptr,         // user context — carries master or any state; allocator too if hooks need it
-                            // may be nil — pool passes it as-is
-    ids:    [dynamic]int,   // user-owned; non-empty, all != 0; user deletes in freeMaster
-    on_get: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode)),
-    on_put: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode)),
-}
-```
-
-**`ctx` is runtime** — cannot be set in a `::` compile-time constant.
-Set it before calling `pool_init`.
-
-Both proc fields are required.
-
-### Init / Close
-
-```odin
-pool_init  :: proc(p: ^Pool, hooks: ^PoolHooks)
-pool_close :: proc(p: ^Pool) -> (list.List, ^PoolHooks)
-```
-
-`ids`: complete set of valid item ids for this pool. All must be != 0. Non-empty.
-
-`pool_close` contract:
-
-```odin
-nodes, h := pool_close(&p)
-```
-
-- Returns all items currently stored in the pool as `list.List`.
-- Returns `^PoolHooks` — the pointer passed to `pool_init`.
-- Post-close `pool_get`/`pool_put` return `.Closed` or no-op.
-- Pool does not call `on_put` during close. User drains manually.
-
-### Pool borrows hooks — heap Master pattern
-
-`pool_init` takes `^PoolHooks`. Pool stores the pointer. User keeps the struct.
-
-`Master` is always heap-allocated. `newMaster` and `freeMaster` are always written together — they are a pair.
-
-```odin
-Master :: struct {
-    pool:  Pool,
-    hooks: PoolHooks,
-    alloc: mem.Allocator,
-    ...
-}
-
-newMaster :: proc(alloc: mem.Allocator) -> ^Master {
-    m := new(Master, alloc)
-    m.alloc = alloc
-    m.hooks = PoolHooks{
-        ctx    = m,
-        on_get = master_on_get,
-        on_put = master_on_put,
-    }
-    append(&m.hooks.ids, int(SomeId.A))  // populate ids before pool_init
-    append(&m.hooks.ids, int(SomeId.B))
-    pool_init(&m.pool, &m.hooks)
-    return m
-}
-
-freeMaster :: proc(master: ^Master) {
-    nodes, _ := pool_close(&master.pool)
-    // NOTE: dispose nodes before freeing other Master resources — dispose code may use Master fields.
-    for {
-        raw := list.pop_front(&nodes)
-        if raw == nil { break }
-        // dispose node — master knows how
-    }
-    // delete ids dynamic array (user-owned, populated before pool_init)
-    delete(master.hooks.ids)
-    alloc := master.alloc
-    free(master, alloc)
-}
-```
-
-`ctx` is set at runtime. Do not set it in a compile-time constant.
-
-### get — acquire ownership
-
-```odin
-pool_get :: proc(p: ^Pool, id: int, mode: Pool_Get_Mode, out: ^Maybe(^PolyNode)) -> Pool_Get_Result
-```
-
-| Mode | Behavior |
-|------|----------|
-| `.Available_Or_New` | check free-list; call `on_get` on hit or miss |
-| `.New_Only` | always call `on_get` with `m^==nil`; skip free-list |
-| `.Available_Only` | free-list only; return `.Not_Available` if empty — `on_get` not called |
-
-| Result | Meaning |
-|--------|---------|
-| `.Ok` | item acquired — `out^` set to item |
-| `.Not_Available` | `.Available_Only` and no item stored — `on_get` was not called |
-| `.Not_Created` | `on_get` ran and returned nil — may be deliberate or failure |
-| `.Closed` | pool is closed |
-
-### get_wait — block until item available
-
-```odin
-pool_get_wait :: proc(p: ^Pool, id: int, out: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
-```
-
-Equivalent to `pool_get(.Available_Only)` but with blocking.
-Never calls `on_get` — only waits for an item to be stored.
-
-`pool_get_wait` with timeout = 0 is the same as `pool_get` with `Available_Only`.
-
-| `timeout` | Behavior |
-|-----------|----------|
-| `== 0` | non-blocking — returns `.Not_Available` immediately if no item stored |
-| `< 0` | blocks forever — waits until an item of this `id` is put back or pool is closed |
-| `> 0` | blocks up to the duration — returns `.Not_Available` on expiry |
-
-| Result | Meaning |
-|--------|---------|
-| `.Ok` | item acquired — `out^` set to item |
-| `.Not_Available` | no item stored (non-blocking or timeout expired) |
-| `.Closed` | pool is closed, or `pool_close` called while waiting — all waiters wake and receive `.Closed` |
-
-```odin
-// Thread waiting for a token from a bounded pool
-m: Maybe(^PolyNode)
-switch pool_get_wait(&p, int(FlowId.Token), &m, -1) {
-case .Ok:
-    defer pool_put(&p, &m)
-    // ... use token ...
-case .Closed:
-    return  // pool is gone — shut down
-case .Not_Available:
-    // timeout expired (only if timeout > 0) — retry or give up
-}
-```
-
-Key points:
-- `pool_get_wait` never calls `on_get` — it only waits for stored items.
-- If `pool_close` is called while a thread is waiting, all waiters wake and receive `.Closed`.
-
-### put — return to pool
-
-```odin
-pool_put :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
-```
-
-Algorithm — in this order:
-
-1. Check `m.?.id`:
-   - `id == 0` → **PANIC** (zero is always invalid, system-wide)
-   - `id not in ids[]` → **PANIC** (not registered in this pool — programming error)
-     > **Implementation note:** Odin's `in` operator does not work on `[dynamic]int`. Use `slice.contains(hooks.ids[:], id)` or a linear scan.
-2. Get `in_pool_count` for this id (under lock, then unlock)
-3. Call `hooks.on_put(ctx, in_pool_count, m)` — **outside lock**
-4. If `m^` is still non-nil → push to free-list, increment count, set `m^ = nil` (under lock)
-
-Open pool → `on_put` decides: hook sets `m^=nil` (disposed) or leaves `m^!=nil` (stored).
-
-The panic in step 1 means no silent "what happens on unknown id" — it crashes immediately.
-
-> **Closed pool + valid id:** `pool_put` returns with `m^` still non-nil. Caller owns the item.
-> Must dispose manually. Does not panic. Items are not silently leaked.
-
-### defer pool_put — when is it safe?
-
-```odin
-m: Maybe(^PolyNode)
-if pool_get(&p, id, .Available_Or_New, &m) == .Ok {
-    defer pool_put(&p, &m)  // safety net
-    // ... work ...
-}
-```
-
-Three outcomes when `defer pool_put` fires:
-- `m^ == nil` (item was transferred via `mbox_send`) → `pool_put` is a no-op
-- `m^ != nil` (item was not transferred) → `pool_put` recycles or `on_put` disposes
-- `m^ != nil` with unknown id or zero id → `pool_put` panics — programming error, surfaces immediately
-
-Safe for valid ids.
-Panics on unknown or zero id.
-The panic is the correct behavior — it tells you exactly where the bug is.
-
-### put_all — return a chain
-
-```odin
-pool_put_all :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
-```
-
-Walks the linked list starting at `m^`, calling `pool_put` on each node.
-Panics on zero or unknown id in any node (same as `pool_put`).
-Used to drain a chain of items — typically after `mbox_close` returns remaining in-flight items:
-
-```odin
-remaining := mbox_close(&mb)
-
-for {
-    raw := list.pop_front(&remaining)
-    if raw == nil { break }
-    poly := (^PolyNode)(raw)
-    m: Maybe(^PolyNode) = poly
-    pool_put(&master.pool, &m)  // if pool closed, m^ stays non-nil — dispose manually
-}
-```
-
----
-
-## ID System
-
-### Rules
-
-- Every item id must be != 0 (zero is reserved/invalid, system-wide)
-- `pool_init` accepts the complete set of valid ids for this pool
-- `pool_put` panics on `id == 0` and on id not in the pool's registered set
-- `mbox_send` returns `.Invalid` if `m^.id == 0`
-- `on_get` stamps `node.id` at allocation time — `on_get` is one allocator, not the only one; the user sets id
-- Id values are user-defined integer constants — typically from an enum
-
-### Why panic on unknown id?
-
-A foreign id on `pool_put` is almost always a bug:
-- wrong cast earlier
-- wrong pool
-- memory corruption
-- use-after-free
-
-Silent recycling would create silent starvation or use-after-free later.
-A loud panic during development is far cheaper than hunting ghosts in production.
-
-Zero is always invalid because it is the zero value of `int`.
-An uninitialized `PolyNode` would have `id == 0`.
-Panicking on zero catches missing `on_get` id stamps immediately.
-
-### Example
-
-```odin
-FlowId :: enum int {
-    Chunk    = 1,  // must be != 0
-    Progress = 2,
-}
-
-// Registration at pool_init
-pool_init(&p, &hooks, {int(FlowId.Chunk), int(FlowId.Progress)})
-```
-
----
-
-## PoolHooks — Reference
-
-All hooks are called **outside the pool mutex**.
-This is guaranteed.
-Hooks may safely access `ctx` — which may contain application-level locks — without deadlock risk.
-
-### on_get
-
-```odin
-on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode))
-```
-
-Pool calls `on_get` on every `pool_get` — except `Available_Only` when no item is stored.
-
-| Entry state | Meaning | Hook must |
-|-------------|---------|-----------|
-| `m^ == nil` | no item available | create a new item, set `node.id = id`, set `m^` |
-| `m^ != nil` | recycled item | reinitialize for reuse |
-
-`in_pool_count`: number of items with this `id` currently idle (stored) in the pool — not total live objects. Hook may use it to decide whether to create or not.
-
-After `on_get`:
-
-| Exit state | Meaning |
-|------------|---------|
-| `m^ != nil` | item ready — pool returns `.Ok` to caller |
-| `m^ == nil` | pool returns `.Not_Created` to caller |
-
-`.Not_Created` is not always an error. Hook may return nil on purpose.
-
-`id` is always passed — needed for creation. Can also be read from `node.id` on recycle, but passing it avoids the cast.
-
-```odin
-master_on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyNode)) {
-    master := (^Master)(ctx)
-    if m^ == nil {
-        // no item available — create new one using master.alloc
-        switch FlowId(id) {
-        case .Chunk:
-            c := new(Chunk, master.alloc)
-            c.id = id
-            m^ = (^PolyNode)(c)
-        case .Progress:
-            p := new(Progress, master.alloc)
-            p.id = id
-            m^ = (^PolyNode)(p)
-        }
-    } else {
-        // recycled item — reinitialize using master fields
-        node := m^
-        switch FlowId(node.id) {
-        case .Chunk:    (^Chunk)(node).len = 0
-        case .Progress: (^Progress)(node).percent = 0
-        }
-    }
-}
-```
-
-### on_put
-
-```odin
-on_put :: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode))
-```
-
-Called during `pool_put`, outside lock.
-
-- `in_pool_count`: current count of items with this id currently idle (stored) in the pool — not total live objects. Use it to decide flow control.
-- If hook sets `m^ = nil` → item is disposed. Pool will not store it.
-- If hook leaves `m^ != nil` → pool stores it.
-
-```odin
-master_on_put :: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode)) {
-    master := (^Master)(ctx)
-    if m == nil || m^ == nil { return }
-    node := m^
-    #partial switch FlowId(node.id) {
-    case .Chunk:
-        if in_pool_count > 400 {
-            free((^Chunk)(node), master.alloc)
-            m^ = nil  // dispose — pool will not store
-        }
-    case .Progress:
-        if in_pool_count > 128 {
-            free((^Progress)(node), master.alloc)
-            m^ = nil  // dispose — pool will not store
-        }
-    }
-    // m^ still non-nil here → pool stores it
-}
-```
-
----
-
 ## Full Lifecycle Example
 
 Sender and receiver are in separate threads. `m` variables are different.
@@ -1053,47 +1120,7 @@ freeMaster(master)
 
 ---
 
-## Pre-allocating (Seeding the Pool)
-
-To avoid runtime latency, pre-allocate before starting threads:
-
-```odin
-master := newMaster(context.allocator)
-
-for _ in 0..<100 {
-    m: Maybe(^PolyNode)
-    if pool_get(&master.pool, int(FlowId.Chunk), .New_Only, &m) == .Ok {
-        pool_put(&master.pool, &m)  // put back immediately — goes to free-list
-    }
-}
-```
-
-`New_Only` always calls `on_get` with `m^==nil`, forcing creation even when items are stored.
-Used here to pre-allocate 100 fresh items into the pool.
-
----
-
-## Pool Get Modes
-
-Mode is a per-call parameter of `pool_get`. Not a pool-wide setting.
-
-```odin
-// Normal operation — use stored item if available, create if not
-pool_get(&master.pool, int(FlowId.Chunk), .Available_Or_New, &m)
-
-// Force creation — use for seeding or when you want a guaranteed fresh item
-pool_get(&master.pool, int(FlowId.Chunk), .New_Only, &m)
-
-// Stored only — use in no-alloc paths (e.g. interrupt handlers)
-// Returns .Not_Available if no item stored — on_get not called
-if pool_get(&master.pool, int(FlowId.Chunk), .Available_Only, &m) != .Ok {
-    // no item stored — handle: skip, back off, or call pool_get_wait
-}
-```
-
----
-
-## Invariants
+## Rules
 
 | # | Rule | Consequence of violation |
 |---|------|--------------------------|

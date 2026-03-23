@@ -27,6 +27,7 @@ COLORS = [
 WOOD_LIGHT = (238, 214, 180)
 WOOD_DARK = (204, 170, 131)
 DARK_BROWN = (85, 52, 31)
+EYE_MOUTH_COLOR = (120, 100, 80) # Lighter color for eyes and mouth
 BLACK = (40, 40, 40)
 GLOW = (255, 220, 80, 80)
 WATER_COLOR_LIGHT = (100, 180, 255, 200)
@@ -169,8 +170,8 @@ def create_shaded_image(size: int, color: tuple, gold_mbox_img: Image.Image) -> 
     # Simple dot eyes (smaller and lighter)
     eye_y = face_y_center - int(face_h * 0.1)
     eye_offset_x = face_w // 4
-    draw.point((face_x_center - eye_offset_x, eye_y), fill=DARK_BROWN)
-    draw.point((face_x_center + eye_offset_x, eye_y), fill=DARK_BROWN)
+    draw.point((face_x_center - eye_offset_x, eye_y), fill=EYE_MOUTH_COLOR)
+    draw.point((face_x_center + eye_offset_x, eye_y), fill=EYE_MOUTH_COLOR)
 
     # Rosy cheeks
     cheek_color = (255, 100, 100, 150)
@@ -183,7 +184,7 @@ def create_shaded_image(size: int, color: tuple, gold_mbox_img: Image.Image) -> 
     # Smiling mouth
     mouth_y = cheek_y
     mouth_offset_x = eye_offset_x * 0.5
-    draw.arc([face_x_center - mouth_offset_x, mouth_y - face_h * 0.1, face_x_center + mouth_offset_x, mouth_y + face_h * 0.1], 0, 180, fill=DARK_BROWN, width=1)
+    draw.arc([face_x_center - mouth_offset_x, mouth_y - face_h * 0.1, face_x_center + mouth_offset_x, mouth_y + face_h * 0.1], 0, 180, fill=EYE_MOUTH_COLOR, width=1)
 
 
 
@@ -236,7 +237,7 @@ def main() -> None:
         doll_img = create_shaded_image(doll_sizes[i], COLORS[i], gold_mbox)
 
         rotation_angle = random.uniform(-15, 15)
-        rotated_doll = doll_img.rotate(rotation_angle, expand=True, resample=Image.BICUBIC)
+        rotated_doll = doll_img.rotate(rotation_angle, expand=True, resample=Image.NEAREST)
         
         px = mx - rotated_doll.width // 2
         py = my - rotated_doll.height // 2

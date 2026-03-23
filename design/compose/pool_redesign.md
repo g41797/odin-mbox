@@ -1,8 +1,4 @@
-# Pool Redesign — for review
-
-> Session 101, 2026-03-22.
-> This doc captures decisions from the design discussion.
-> It is a draft for review — not yet merged into `design.md`.
+# Pool Redesign
 
 ---
 
@@ -10,30 +6,12 @@
 
 ---
 
-## What changed and why
-
-Old design:
-- `pool_init` received an allocator.
-- `PoolHooks` had 4 procs: `factory`, `on_get`, `on_put`, `dispose`.
-- Each hook received `alloc mem.Allocator`.
-- Pool owned the hooks by value.
-
-New design:
-- Pool allocates and frees nothing. Hooks own all lifecycle.
-- Hooks do not receive `alloc`. They get an allocator from `ctx` if needed.
-- `factory` and `on_get` merge into one proc — `on_get`.
-- `dispose` is removed from `PoolHooks`. User disposes in `on_put` and after `pool_close`.
-- Pool borrows `^PoolHooks` — user owns the struct.
-- `pool_destroy` renamed to `pool_close`. Returns stored items and hooks pointer back to user.
-- `pool_recycle_wait` renamed to `pool_get_wait`.
-- `Pool_Get_Mode` values renamed to clearer names.
-
----
-
 ## Reminder: WTH is ^Maybe(^PolyNode)
 
 User has many types: Chunk, Progress, Token, ...
+
 Service (queue, pool, mailbox) must work with all of them.
+
 Service cannot import user types — that creates dependencies.
 
 Solution: user embeds `PolyNode` in their struct. Service works with `^PolyNode` only.
@@ -59,7 +37,34 @@ User reads `id`, casts to the right type, done.
 No flags. No return codes. One look at `m^`.
 
 **^Maybe** at APIs — service writes `nil` into your variable when it takes the item.
+
 You check `m^` after the call. nil = gone. non-nil = still yours.
+
+---
+
+## THE FIRST RULE OF POOL
+
+You don't know pool yet. You haven't seen the APIs. Read this first. Remember it.
+
+Pool has many conditions, results, and rules.
+That is not a bug — it is the point.
+Pool tries to prevent almost every wrong combination before it becomes a silent failure.
+Pool is strong. Pool saves lives. *(We are serious about the first part.)*
+
+**The rule:** check the result of every API call.
+The table below tells you what "ok" looks like for each one.
+If it is not ok — fix the root cause. Do not retry the same mistake.
+
+| API | Returns | "Ok" means |
+|-----|---------|------------|
+| `pool_init` | nothing | no panic — bad input panics immediately |
+| `pool_get` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
+| `pool_get_wait` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
+| `pool_put` | nothing | `m^` is `nil` after the call — pool took it |
+| `pool_close` | `(list.List, ^PoolHooks)` | always succeeds — drain the returned list |
+
+For `pool_put`: if `m^` is still non-nil after the call, the pool is closed — you own the item, dispose manually.
+For `pool_get` / `pool_get_wait`: any result other than `.Ok` has a specific meaning — see the result table below.
 
 ---
 
@@ -80,7 +85,9 @@ Both procs are required.
 
 `ctx` may be nil. Pool passes it as-is. Hook is responsible for handling nil `ctx` safely.
 
-`ids` is a `[dynamic]int` owned by the user. Populate with `append` before calling `pool_init`. Delete in `freeMaster` before `free(master, alloc)`. Pool stores a slice view `valid_ids = hooks.ids[:]` for post-close id validation.
+`ids` is a `[dynamic]int` owned by the user:
+- Populate with `append` before calling `pool_init`
+- Delete in `freeMaster` before `free(master, alloc)`.
 
 ---
 
@@ -130,9 +137,9 @@ After `on_put`:
 ```odin
 pool_init     :: proc(p: ^Pool, hooks: ^PoolHooks)
 pool_close    :: proc(p: ^Pool) -> (list.List, ^PoolHooks)
-pool_get      :: proc(p: ^Pool, id: int, mode: Pool_Get_Mode, out: ^Maybe(^PolyNode)) -> Pool_Get_Result
+pool_get      :: proc(p: ^Pool, id: int, mode: Pool_Get_Mode, m: ^Maybe(^PolyNode)) -> Pool_Get_Result
 pool_put      :: proc(p: ^Pool, m: ^Maybe(^PolyNode))
-pool_get_wait :: proc(p: ^Pool, id: int, out: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
+pool_get_wait :: proc(p: ^Pool, id: int, m: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
 ```
 
 ---
@@ -155,10 +162,11 @@ Pool_Get_Mode :: enum {
 
 ```odin
 Pool_Get_Result :: enum {
-    Ok,            // item returned in out^
-    Not_Available, // Available_Only: no item stored — on_get was not called
-    Not_Created,   // on_get ran and returned nil — may be deliberate or failure
-    Closed,        // pool is closed
+    Ok,             // item returned in m^
+    Not_Available,  // Available_Only: no item stored — on_get was not called
+    Not_Created,    // on_get ran and returned nil — may be deliberate or failure
+    Closed,         // pool is closed
+    Already_In_Use, // m^ != nil on entry — caller holds an unreleased item
 }
 ```
 
@@ -167,15 +175,32 @@ Caller always knows what to do:
 - `.Not_Available` — no item stored right now. Retry later or call `pool_get_wait`.
 - `.Not_Created` — `on_get` ran but returned nil. May be policy or failure — caller decides.
 - `.Closed` — pool is shut down. Do not retry.
+- `.Already_In_Use` — `m^` was non-nil on entry. Release the current item first.
+
+---
+
+## pool_get / pool_get_wait — validation order
+
+Both functions apply the same entry checks in this order:
+
+| Priority | Check | Result |
+|----------|-------|--------|
+| 1 | `id == 0` | **panic** — zero id is always a programming error |
+| 2 | `m^ != nil` | `.Already_In_Use` — caller holds an unreleased item |
+| 3 | pool closed | `.Closed` |
+| 4 | `id` not in registered set (open pool only) | **panic** — foreign id is a programming error |
+| 5 | proceed with get logic | — |
 
 ---
 
 ## pool_put contract
 
-- Foreign `id` (not in `ids[]`) → **panic**. Always. Closed or open.
+- Foreign `id` (not in `ids[]`) → **panic** if open.
+
 
 > **Implementation note:** Odin's `in` operator does not work on `[dynamic]int`. Use `slice.contains(hooks.ids[:], id)` or a linear scan for the id validation check.
-- Closed pool + valid id → `m^` stays non-nil on return. Caller owns the item. Must dispose manually.
+- Closed pool + id != 0 → `m^` stays non-nil on return. Caller owns the item. Must dispose manually.
+- Closed pool + id == 0 → **panic**
 - Open pool → `on_put` decides: hook sets `m^=nil` (disposed) or leaves `m^!=nil` (stored).
 
 `pool_put` has no return value. `m^` nil/non-nil after the call is the only signal.

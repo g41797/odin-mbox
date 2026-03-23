@@ -1,10 +1,30 @@
 ![](_logo/horowod_mbox.png)
 # Matryoshka — Layered Inter-Thread Communication
 
-The endless inter-threaded game...
+One layer at a time. Stop when you have enough.
 
 [![CI](https://github.com/g41797/matryoshka/actions/workflows/ci.yml/badge.svg)](https://github.com/g41797/matryoshka/actions/workflows/ci.yml)
 
+
+---
+
+
+## What changes in your head
+
+You write multi-threaded code.
+Data moves between threads.
+
+Before Matryoshka you think:
+- who locked what
+- who waits
+- who frees
+
+With Matryoshka you think:
+- where does this chunk go next
+- who owns it right now
+- when do I return it to the pool
+
+That is the only real change.
 
 ---
 
@@ -20,14 +40,14 @@ The endless inter-threaded game...
 
 ---
 
-## Your five dolls5
+## Your four dolls
+
 | Doll | What you get | What you still do not need |
 |------|--------------|----------------------------|
 | 1    | PolyNode + Maybe | everything else |
-| 2    | + Pool + hooks (create, reset, dispose) | mailbox |
-| 3    | + simple Mailbox (blocking) | fast loop version |
-| 4    | + LoopMailbox (batch + wake) | — full system |
-| 5    | full system with all mailboxes | nothing |
+| 2    | + Pool (`on_get` / `on_put` hooks) | extended pool, mailbox |
+| 3    | + extended pool (flow control, free-list) | mailbox |
+| 4    | + Mailbox | — full system |
 
 **Rule:** open the next doll only because you need it — never because it is there.
 
@@ -74,7 +94,7 @@ No locks. No threads yet. Just clean ownership.
 
 ---
 
-## Doll 2 — Pool + hooks
+## Doll 2 — Pool
 
 Now you add recycling.
 
@@ -85,19 +105,25 @@ All smarts live in your hooks.
 ```odin
 PoolHooks :: struct {
     ctx:    rawptr,
+    ids:    [dynamic]int,  // which item types this pool handles — you fill before pool_init
     on_get: proc(ctx: rawptr, id: int, count: int, m: ^Maybe(^PolyNode)),
     on_put: proc(ctx: rawptr, count: int, m: ^Maybe(^PolyNode)),
 }
 ```
 
-`on_get` creates or resets.
+`on_get` is called on every get.
+- `m^ == nil` — no item available — create a new one
+- `m^ != nil` — recycled item — reinitialize it for reuse
+
 `on_put` decides: keep it or throw it away.
+- set `m^ = nil` to dispose
+- leave `m^` non-nil to store back
 
 You start simple:
 
 ```odin
-on_get: always new(...)
-on_put: always free(...)
+on_get: if m^ == nil { m^ = new(...) } else { reset(m^) }
+on_put: always leave non-nil  // pool keeps it
 ```
 
 Same system as Doll 1, just no leaks.
@@ -105,7 +131,6 @@ Same system as Doll 1, just no leaks.
 Later you grow the same hooks:
 
 - count > 400 → dispose (backpressure)
-- reset fields before reuse
 - use your own arena
 - add stats
 
@@ -122,7 +147,24 @@ Still one thread. Still no mailbox.
 
 ---
 
-## Doll 3 — Mailbox
+## Doll 3 — Extended Pool
+
+> **Not yet implemented.**
+
+Same Pool from Doll 2.
+Add flow control and a free-list per item type.
+
+- per-id `in_pool_count` — how many items of this type are idle
+- `on_get` and `on_put` receive the count — your hook uses it for backpressure
+- soft limits without changing pool internals
+
+When your Doll 2 hooks start carrying too much policy logic — open Doll 3.
+
+---
+
+## Doll 4 — Mailbox
+
+> **Not yet implemented.**
 
 Now you add threads.
 
@@ -137,13 +179,13 @@ You call:
 - `mbox_wait_receive` → ownership comes to you
 
 - It blocks when empty.
-- And you can use timeout.
 - It wakes when something arrives.
-- And you can interrupt receive side without send.
+- Timeout supported.
+- Receiver can be interrupted without touching the sender.
 
 You still use the same Pool from Doll 2.
 
-With Doll 1 + 2 + 3 you can now build the full compression example:
+With all four dolls you can build the full compression example:
 
 Main thread
 - reads file
@@ -154,46 +196,18 @@ Worker thread
 - waits
 - ==> receives
 - compresses
-- sends progress  back  ==>
-- sends compressed back  ==>
-
+- sends progress back ==>
+- sends compressed back ==>
 
 Main thread
 - ==> receives progress and updates bar
-- ==> receives data and writes file)
+- ==> receives data and writes file
 
 No shared arrays.
 No locks in your code.
-Just
-- “get → fill → send” and
-- “wait → process → put”.
-
----
-
-## Doll 4 — LoopMailbox (fast batch + wake)
-
-When your receiver is a game loop or event loop you open this doll.
-
-- No blocking.
-- No mutex on the receive side.
-- You call `try_receive_batch` once per frame.
-- You get all waiting items at once.
-
-Optional WakeUper tells the sender “something arrived” without blocking.
-
-Same ownership rules.
-Same Pool.
-Same `PolyNode`.
-
-You use it when:
-
-- game loop (60 times per second)
-- network reactor
-- audio callback (must never block)
-
-The simple Mailbox from Doll 3 still works for normal workers.
-
-You choose the doll that fits your loop.
+Just:
+- "get → fill → send" and
+- "wait → process → put"
 
 ---
 
@@ -207,15 +221,13 @@ Add a pool.
 Now you recycle enemies instead of new/free every time.
 
 Open Doll 3.
-Add one worker thread.
-Now compression runs in background.
-
-If your task requires several workers - add.
-Remember Mailbox supports safe multithreaded  [FanIn-FanOut](https://medium.com/@kapoorjasdeep/fan-out-and-fan-in-the-unsung-heroes-of-system-design-2f8a46933518) patterns.
+Add flow control to the hooks.
+Now backpressure is one counter check in `on_put`.
 
 Open Doll 4.
-Change the main loop to use LoopMailbox.
-Now the UI stays smooth at 60 fps.
+Add one worker thread.
+Now compression runs in the background.
+Mailbox supports safe multithreaded fan-in and fan-out patterns.
 
 Every step uses exactly the same vocabulary:
 
@@ -225,6 +237,7 @@ Every step uses exactly the same vocabulary:
 - receive
 - put back
 
+Only the hooks grow when you need control.
 Only the mailbox changes when you need speed.
 
 ---
@@ -233,31 +246,30 @@ Only the mailbox changes when you need speed.
 
 We give clear short names so you never guess.
 
-| Old thinking name | Matryoshka name | What it does |
-|-------------------|-----------------|--------------|
-| queue             | Mailbox         | moves data between threads |
-| fast queue        | LoopMailbox     | batch receive for loops |
-| object pool       | Pool            | recycles your structs |
-| node              | PolyNode        | the link inside every item |
-| ownership flag    | Maybe           | tells who owns the item now |
+| Concept | Matryoshka name | What it does |
+|---------|-----------------|--------------|
+| queue | Mailbox | moves data between threads |
+| object pool | Pool | recycles your structs |
+| node | PolyNode | the link inside every item |
+| ownership flag | Maybe | tells who owns the item now |
 
 Use these names in your code and comments.
 Everyone on the team will understand.
 
 ---
 
-## The compression picture again (with dolls)
+## The compression picture (with dolls)
 
 ```
-Main (Doll 3)
+Main (Doll 4)
   ↓ Chunk (PolyNode)
-Mailbox (Doll 3)
+Mailbox (Doll 4)
   ↓
-Worker 1..3
+Worker 1..N
   ↓ Progress + CompressedChunk
-Mailbox (Doll 3 or 4)
+Mailbox (Doll 4)
   ↓
-Main (Doll 3 or 4)
+Main (Doll 4)
 ```
 
 All items come from one Pool (Doll 2).
@@ -265,45 +277,11 @@ All transfers use Maybe ownership.
 
 ---
 
-## What changes in your head
-
-Before Matryoshka you think:
-- who locked what
-- who waits
-- who frees
-
-With Matryoshka you think:
-- where does this chunk go next
-- who owns it right now
-- when do I return it to the pool
-
-That is the only real change.
-
----
-
-## You can stop at any doll
-
-Need only lists in one thread?
-Stop at Doll 1.
-
-Need recycling without threads?
-Stop at Doll 2.
-
-Need worker threads?
-Stop at Doll 3.
-
-Need smooth game loop?
-Stop at Doll 4.
-
-The system is complete at every step.
-
----
-
 ## Takeaway
 
 Matryoshka is not a big library.
 
-It is five small complete pieces.
+It is four small complete pieces.
 
 You open them one by one.
 
@@ -319,3 +297,8 @@ If that sentence describes your whole program,
 the design works.
 
 That is all.
+
+---
+
+Don't shoot the
+AI image generator; he's doing his best! 🤖🎨

@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026 g41797
-// SPDX-License-Identifier: MIT
-
 //+test
 package tests_layer1
 

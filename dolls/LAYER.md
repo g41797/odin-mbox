@@ -130,7 +130,7 @@ This is accepted — doll1 is a slightly richer doll1, all tests pass.
 | Package | Path | Import path (from inside doll1) | Contents |
 |---------|------|----------------------------------|----------|
 | item | `item/` | `"./item"` (local) | `PolyNode`, `Maybe` — foundation types |
-| hooks | `hooks/` | `"../item"` (item is its dependency) | `Ctor_Dtor` struct — ctor, dtor proc fields |
+| hooks | `hooks/` | `"../item"` (item is its dependency) | `Builder` struct — ctor, dtor proc fields |
 | examples/item | `examples/item/` | — | `Event`, `Sensor`, `ItemId`; `example_produce_consume`, `example_ownership` |
 | examples/hooks | `examples/hooks/` | — | `item_factory`, `item_dispose`, `make_flow_policy` |
 | tests/item | `tests/item/` | — | integration tests for examples/item |
@@ -146,13 +146,13 @@ PolyNode :: struct {
 }
 
 // package hooks
-Ctor_Dtor :: struct {
+Builder :: struct {
     ctor: proc(id: int) -> Maybe(^item.PolyNode),
     dtor: proc(m: ^Maybe(^item.PolyNode)),
 }
 ```
 
-Note: doll1 `Ctor_Dtor` has `ctor` and `dtor` only — create and destroy, no pool logic.
+Note: doll1 `Builder` has `ctor` and `dtor` only — create and destroy, no pool logic.
 `PoolHooks` (layer3+) adds `ctx rawptr`, `in_pool_count int`, merges create/reuse into `on_get`.
 
 ### Build
@@ -189,7 +189,7 @@ All pass.
 | Package | Path | Contents |
 |---------|------|----------|
 | item | `item/` | `PolyNode`, `Maybe` — copied from doll1, unchanged |
-| hooks | `hooks/` | `Ctor_Dtor` — copied from doll1, unchanged |
+| hooks | `hooks/` | `Builder` — copied from doll1, unchanged |
 | pool | `pool/` | `Pool`, `PoolHooks`, `pool_init/close/get/put/get_wait` |
 | examples/item | `examples/item/` | copied from doll1, unchanged |
 | examples/hooks | `examples/hooks/` | copied from doll1, unchanged |
@@ -571,7 +571,7 @@ Each `## Layer N — ...` section should document:
 | Package | Path | Contents |
 |---------|------|----------|
 | item | `item/` | `PolyNode`, `Maybe` — copied from doll1, unchanged |
-| hooks | `hooks/` | `Ctor_Dtor` — copied from doll1, unchanged |
+| hooks | `hooks/` | `Builder` — copied from doll1, unchanged |
 | pool | `pool/` | `Pool`, `PoolHooks`, `pool_init/close/get/put/get_wait` |
 | examples/item | `examples/item/` | copied from doll1, unchanged |
 | examples/hooks | `examples/hooks/` | copied from doll1, unchanged |

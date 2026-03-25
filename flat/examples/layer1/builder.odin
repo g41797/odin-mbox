@@ -1,34 +1,45 @@
 package examples_layer1
 
-import matryoshka "../.."
+import "core:mem"
 
-// Ctor_Dtor provides functions to construct and destruct PolyNodes.
-// These are typically used by pools or other resource managers.
-Ctor_Dtor :: struct {
-	ctor: proc(id: int) -> Maybe(^matryoshka.PolyNode),
-	dtor: proc(m: ^Maybe(^matryoshka.PolyNode)),
+// Builder provides functions to construct and destruct
+// PolyNode-based items with different types.
+// Very naive - don't use in produnction
+Builder :: struct {
+	alloc: mem.Allocator,
 }
 
-// item_ctor allocates the correct type for id and sets id.
+// make_builder creates a Builder with the given allocator.
+make_builder :: proc(alloc: mem.Allocator) -> Builder {
+	return Builder{alloc = alloc}
+}
+
+// ctor allocates the correct type for id and sets id.
 // Returns nil for unknown ids.
-item_ctor :: proc(id: int) -> Maybe(^matryoshka.PolyNode) {
+ctor :: proc(b: ^Builder, id: int) -> Maybe(^PolyNode) {
 	switch ItemId(id) {
 	case .Event:
-		ev := new(Event)
+		ev := new(Event, b.alloc)
+		if ev == nil {
+			return nil
+		}
 		ev.poly.id = id
-		return Maybe(^matryoshka.PolyNode)(&ev.poly)
+		return Maybe(^PolyNode)(&ev.poly)
 	case .Sensor:
-		s := new(Sensor)
+		s := new(Sensor, b.alloc)
+		if s == nil {
+			return nil
+		}
 		s.poly.id = id
-		return Maybe(^matryoshka.PolyNode)(&s.poly)
+		return Maybe(^PolyNode)(&s.poly)
 	case:
 		return nil
 	}
 }
 
-// item_dtor frees internal resources and the node, then sets m^ = nil.
+// dtor frees internal resources and the node, then sets m^ = nil.
 // Safe to call with m == nil or m^ == nil (no-op).
-item_dtor :: proc(m: ^Maybe(^matryoshka.PolyNode)) {
+dtor :: proc(b: ^Builder, m: ^Maybe(^PolyNode)) {
 	if m == nil {
 		return
 	}
@@ -38,17 +49,11 @@ item_dtor :: proc(m: ^Maybe(^matryoshka.PolyNode)) {
 	}
 	switch ItemId(ptr.id) {
 	case .Event:
-		free((^Event)(ptr))
+		free((^Event)(ptr), b.alloc)
 	case .Sensor:
-		free((^Sensor)(ptr))
+		free((^Sensor)(ptr), b.alloc)
 	case:
-		// Unknown id — still free the raw allocation to avoid leaks.
-		free(ptr)
+		panic("unknown id")
 	}
 	m^ = nil
-}
-
-// make_ctor_dtor returns a Ctor_Dtor for Event + Sensor.
-make_ctor_dtor :: proc() -> Ctor_Dtor {
-	return Ctor_Dtor{ctor = item_ctor, dtor = item_dtor}
 }

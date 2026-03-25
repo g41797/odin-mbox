@@ -110,15 +110,30 @@ This is discipline, not enforcement.
 
 ## Builder example: Event + Sensor
 
+<!-- snippet: examples/layer1/builder.odin:7-58 -->
 ```odin
-item_ctor :: proc(alloc: mem.Allocator, id: int) -> Maybe(^PolyNode) {
+Builder :: struct {
+    alloc: mem.Allocator,
+}
+
+make_builder :: proc(alloc: mem.Allocator) -> Builder {
+    return Builder{alloc = alloc}
+}
+
+ctor :: proc(b: ^Builder, id: int) -> Maybe(^PolyNode) {
     switch ItemId(id) {
     case .Event:
-        ev := new(Event, alloc)
+        ev := new(Event, b.alloc)
+        if ev == nil {
+            return nil
+        }
         ev.poly.id = id
         return Maybe(^PolyNode)(&ev.poly)
     case .Sensor:
-        s := new(Sensor, alloc)
+        s := new(Sensor, b.alloc)
+        if s == nil {
+            return nil
+        }
         s.poly.id = id
         return Maybe(^PolyNode)(&s.poly)
     case:
@@ -126,7 +141,7 @@ item_ctor :: proc(alloc: mem.Allocator, id: int) -> Maybe(^PolyNode) {
     }
 }
 
-item_dtor :: proc(alloc: mem.Allocator, m: ^Maybe(^PolyNode)) {
+dtor :: proc(b: ^Builder, m: ^Maybe(^PolyNode)) {
     if m == nil {
         return
     }
@@ -136,21 +151,13 @@ item_dtor :: proc(alloc: mem.Allocator, m: ^Maybe(^PolyNode)) {
     }
     switch ItemId(ptr.id) {
     case .Event:
-        free((^Event)(ptr), alloc)
+        free((^Event)(ptr), b.alloc)
     case .Sensor:
-        free((^Sensor)(ptr), alloc)
+        free((^Sensor)(ptr), b.alloc)
     case:
-        free(ptr, alloc)
+        panic("dtor: unknown id")
     }
     m^ = nil
-}
-
-make_builder :: proc(alloc: mem.Allocator) -> Builder {
-    return Builder{
-        alloc = alloc,
-        ctor  = item_ctor,
-        dtor  = item_dtor,
-    }
 }
 ```
 
@@ -158,18 +165,24 @@ make_builder :: proc(alloc: mem.Allocator) -> Builder {
 
 This is the manual way — without Builder:
 
+<!-- snippet: examples/layer1/ownership.odin:12-22 -->
 ```odin
-ev := new(Event)
+ev := new(Event, alloc)
+// ...
 ev.poly.id = int(ItemId.Event)
-ev.code    = 99
+ev.code = 99
+ev.message = "owned"
+// ...
 m: Maybe(^PolyNode) = &ev.poly
-// Maybe is the sole owner now. Do NOT defer free(ev).
 ```
 
 With Builder:
+
+<!-- snippet: examples/layer1/example_builder.odin:8-11 -->
 ```odin
-m := b.ctor(b.alloc, int(ItemId.Event))
-// done. Builder allocated, set id, wrapped in Maybe.
+b := make_builder(alloc)
+// ...
+m := ctor(&b, int(ItemId.Event))
 ```
 
 Builder prevents the mistakes.
@@ -191,7 +204,7 @@ Any code that creates and destroys polymorphic items can use Builder directly.
 
 Matryoshka does not need Builder either.
 Builder, Master — everything described from here on — is your code.
-Matryoshka gives you PolyNode, Maybe, Mailbox, Pool.
+Matryoshka gives you PolyNode, Mailbox, Pool.
 The rest is friendly advice.
 Not forced. Not required.
 Use it, change it, or write your own.
@@ -205,21 +218,34 @@ But even there, the simplest Builder — just ctor and dtor wrapped into on_get/
 
 ### Produce
 
-Allocate items via Builder.
+Allocate items.
 Push to intrusive list:
 
+<!-- snippet: examples/layer1/produce_consume.odin:32-55 -->
 ```odin
-l: list.List
-b := make_builder(context.allocator)
+// Drain on any exit path — no-op if list is already empty.
+defer drain_list(&l, alloc)
 
-for i in 0..<3 {
-    m := b.ctor(b.alloc, int(ItemId.Event))
-    ptr, ok := m.?
-    if !ok { continue }
-    ev := (^Event)(ptr)
+// --- Produce: N pairs of (Event, Sensor) ---
+N :: 3
+for i in 0 ..< N {
+    ev := new(Event, alloc)
+    if ev == nil {
+        return false
+    }
+    ev.poly.id = int(ItemId.Event)
     ev.code = i
     ev.message = "event"
-    list.push_back(&l, &ptr.node)
+    list.push_back(&l, &ev.poly.node)
+
+    s := new(Sensor, alloc)
+    if s == nil {
+        return false
+    }
+    s.poly.id = int(ItemId.Sensor)
+    s.name = "sensor"
+    s.value = f64(i) * 1.5
+    list.push_back(&l, &s.poly.node)
 }
 ```
 
@@ -228,30 +254,30 @@ for i in 0..<3 {
 Pop from list.
 Dispatch on id.
 Process.
-Destroy via Builder:
+Free:
 
+<!-- snippet: examples/layer1/produce_consume.odin:58-81 -->
 ```odin
 for {
     raw := list.pop_front(&l)
-    if raw == nil { break }
+    if raw == nil {
+        break
+    }
     poly := (^PolyNode)(raw)
 
     switch ItemId(poly.id) {
     case .Event:
         ev := (^Event)(poly)
-        // process event
-        m: Maybe(^PolyNode) = poly
-        b.dtor(b.alloc, &m)
+        fmt.printfln("Event:  code=%d  message=%s", ev.code, ev.message)
+        free(ev, alloc)
     case .Sensor:
         s := (^Sensor)(poly)
-        // process sensor
-        m: Maybe(^PolyNode) = poly
-        b.dtor(b.alloc, &m)
+        fmt.printfln("Sensor: name=%s  value=%f", s.name, s.value)
+        free(s, alloc)
     case:
-        // unknown id — still clean up
-        m: Maybe(^PolyNode) = poly
-        b.dtor(b.alloc, &m)
+        panic("consume: unknown id")
     }
+    processed += 1
 }
 ```
 
@@ -338,7 +364,7 @@ The difference between "transferred" and "never had it" disappears.
 
 Two-value form — **use this**:
 
-```odin
+```
 ptr, ok := m.?
 ```
 
@@ -346,7 +372,7 @@ Safe. No panic. `ok` is `false` if `m == nil`. `ptr` is only valid when `ok` is 
 
 Single-value form — **big no-no**:
 
-```odin
+```
 ptr := m.?
 ```
 
@@ -379,7 +405,7 @@ To get the same guarantees you have to add a flag by hand.
 
 This is what the equivalent of `^Maybe(^PolyNode)` looks like with raw pointers:
 
-```odin
+```
 // Manual equivalent of Maybe(^PolyNode)
 Owned :: struct {
     ptr:   ^PolyNode,
@@ -389,14 +415,14 @@ Owned :: struct {
 
 Every call site that now writes:
 
-```odin
+```
 m: Maybe(^PolyNode)
 ptr, ok := m.?
 ```
 
 would become:
 
-```odin
+```
 m: Owned
 if m.valid {
     ptr := m.ptr
@@ -406,13 +432,13 @@ if m.valid {
 
 And every API that now does:
 
-```odin
+```
 m^ = nil    // transfer complete
 ```
 
 would have to do:
 
-```odin
+```
 m.ptr   = nil
 m.valid = false
 ```

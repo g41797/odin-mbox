@@ -16,20 +16,22 @@ Just clean ownership in one thread.
 
 ## PolyNode — the traveling struct
 
+<!-- snippet: polynode.odin:6-42 -->
 ```odin
 import list "core:container/intrusive/list"
-
+// ...
 PolyNode :: struct {
     using node: list.Node, // intrusive link — .prev, .next
-    id:         int,       // must be != 0, describes the type of user data
+    id:         int, // type discriminator, must be != 0
 }
 ```
 
 Every type that travels through matryoshka embeds `PolyNode` at **offset 0** via `using`:
 
+<!-- snippet: examples/layer1/types.odin:16-20 -->
 ```odin
 Event :: struct {
-    using poly: PolyNode,   // offset 0 — required
+    using poly: matryoshka.PolyNode, // offset 0 — required for safe cast
     code:       int,
     message:    string,
 }
@@ -52,9 +54,10 @@ That is how you catch missing initialization — immediately.
 Set `id` once at creation.
 Use an enum:
 
+<!-- snippet: examples/layer1/types.odin:10-13 -->
 ```odin
 ItemId :: enum int {
-    Event  = 1,  // must be != 0
+    Event  = 1,
     Sensor = 2,
 }
 ```
@@ -115,26 +118,30 @@ Following it is on you.
 
 ## Builder — create and destroy by id
 
-Builder groups allocation and disposal behind two procs:
+Builder stores an allocator and provides `ctor` / `dtor` procs:
 
+<!-- snippet: examples/layer1/builder.odin:7-14 -->
 ```odin
 Builder :: struct {
     alloc: mem.Allocator,
-    ctor:  proc(alloc: mem.Allocator, id: int) -> Maybe(^PolyNode),
-    dtor:  proc(alloc: mem.Allocator, m: ^Maybe(^PolyNode)),
+}
+
+make_builder :: proc(alloc: mem.Allocator) -> Builder {
+    return Builder{alloc = alloc}
 }
 ```
 
-`ctor`:
-- Allocates the correct type for `id`.
-- Sets `node.id`.
+`ctor(b: ^Builder, id: int) -> Maybe(^PolyNode)`:
+- Allocates the correct type for `id` using `b.alloc`.
+- Sets `poly.id`.
 - Wraps the result in `Maybe(^PolyNode)`.
-- Returns nil for unknown ids.
+- Returns nil for unknown ids or allocation failure.
 
-`dtor`:
-- Frees the item.
+`dtor(b: ^Builder, m: ^Maybe(^PolyNode))`:
+- Frees the item using `b.alloc`.
 - Sets `m^ = nil`.
 - Safe to call with `m == nil` or `m^ == nil` — no-op.
+- Panics on unknown id — a programming error.
 
 ---
 

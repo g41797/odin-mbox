@@ -1,22 +1,23 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026 g41797
-// SPDX-License-Identifier: MIT
-
 //+test
 package tests_layer1
 
-import ex "../../examples/layer1"
 import matryoshka "../.."
+import ex "../../examples/layer1"
 import list "core:container/intrusive/list"
 import "core:testing"
 
 @(test)
 test_produce_consume :: proc(t: ^testing.T) {
-	testing.expect(t, ex.example_produce_consume(), "produce_consume must return true")
+	testing.expect(
+		t,
+		ex.example_produce_consume(context.allocator),
+		"produce_consume must return true",
+	)
 }
 
 @(test)
 test_ownership :: proc(t: ^testing.T) {
-	testing.expect(t, ex.example_ownership(), "ownership must return true")
+	testing.expect(t, ex.example_ownership(context.allocator), "ownership must return true")
 }
 
 @(test)

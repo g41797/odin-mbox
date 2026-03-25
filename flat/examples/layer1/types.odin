@@ -2,6 +2,9 @@ package examples_layer1
 
 import matryoshka "../.."
 
+// Alias for matryoshka.PolyNode — shortens usage across this package.
+PolyNode :: matryoshka.PolyNode
+
 // ItemId identifies the concrete type stored behind a PolyNode.
 // Values must be != 0; 0 is always invalid (zero value of int).
 ItemId :: enum int {
@@ -11,14 +14,14 @@ ItemId :: enum int {
 
 // Event carries a numeric code and a human-readable message.
 Event :: struct {
-	using poly: matryoshka.PolyNode, // offset 0 — required for safe cast
+	using poly: PolyNode, // offset 0 — required for safe cast
 	code:       int,
 	message:    string,
 }
 
 // Sensor carries a name and a floating-point measurement.
 Sensor :: struct {
-	using poly: matryoshka.PolyNode, // offset 0 — required for safe cast
+	using poly: PolyNode, // offset 0 — required for safe cast
 	name:       string,
 	value:      f64,
 }

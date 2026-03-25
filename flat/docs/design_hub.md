@@ -8,49 +8,10 @@
 
 ---
 
-## Document Writing Rules
+## Advices
 
-When editing this document, follow these rules:
-
-**Sentences**
-- One idea per line.
-- Split compound sentences — do not chain clauses with commas.
-- Do not pack a full explanation into one sentence.
-- Use bullets or short sequential sentences instead.
-- If you feel the urge to write "which", "that", or "because" mid-sentence — stop. Split.
-
-**Language**
-- Write for non-English developers.
-- No academic words: "semantics", "structural", "contractual", "mechanism", "protocol".
-- If you would not say it to a colleague at a whiteboard — rewrite it.
-
-**Lists**
-- Use bullet lists for sets of items, attributes, or steps.
-- Use numbered lists only when order matters for correctness.
-
-**Sequential steps**
-- Write as a bullet list, not as a run-on sentence.
-- Label the context: `Send side:` / `Receive side:` / `Algorithm:` etc.
-
-**Tables**
-- Use for result codes, mode behavior, and rules.
-- Keep column count minimal — two or three columns maximum.
-
-**Prose paragraphs**
-- Reserve for motivation and explanation, not for API contracts.
-- API contracts go in tables or bullet lists.
-
-**Source files**
-- Source files know nothing about layers — no layer references in comments or docs.
-- No forward references to terms not yet defined in the document.
-- Always use the two-value form to read the inner value of a `Maybe`: `ptr, ok := m.?`
-- Never use the single-value form `ptr := m.?` — it panics if nil.
-- Never cast or dereference around `.?`.
-
-**Cross-layer references**
-- A layer may reference earlier layers.
-- A layer must never reference later layers.
-- Within a layer, do not mention concepts defined later in the same layer.
+[Advices](advices.md) contains recommended patterns for writing matryoshka code.
+All new code and changes must be checked against its content.
 
 ---
 
@@ -112,25 +73,6 @@ Each layer has a **Quick Reference** (API signatures, contracts, tables) and a *
 
 - [Quick Reference](layer3_quickref.md) — Pool API, modes, results, PoolHooks contracts, ID rules
 - [Deep Dive](layer3_deepdive.md) — hook examples, backpressure, full lifecycle, Master with Pool
-
----
-
-## Rules
-
-You are not going to memorize this table.
-But when something breaks, you will come back here.
-
-| # | Rule | Consequence of violation |
-|---|------|--------------------------|
-| R1 | `m^` is the ownership bit. Non-nil = you own it. | Double-free or leak. |
-| R2 | All callbacks called outside pool mutex. | Guaranteed by pool. User may hold their own locks inside callbacks. |
-| R3 | `on_get` is called on every `pool_get` except `Available_Only` when no item stored. | Hook handles both create (`m^==nil`) and reinitialize (`m^!=nil`). |
-| R4 | Pool maintains per-id `in_pool_count`. Passed to `on_get` and `on_put`. | Enables flow control. |
-| R5 | `id == 0` on `pool_put` or `mbox_send` → immediate panic or `.Invalid`. | Programming errors surface immediately. |
-| R6 | Unknown id on `pool_put` → **panic** if pool is open. Closed pool: `m^` stays non-nil — caller owns the item. | Panics catch bugs early; closed pool returns ownership cleanly. |
-| R7 | `on_put`: if `m^ != nil` after hook → pool stores it. If `m^ == nil` → pool discards. | Hook sets `m^ = nil` to dispose. |
-| R8 | Always use `ptr, ok := m.?` to read the inner value of `Maybe(^PolyNode)`. Never use the single-value form `ptr := m.?`. | Single-value form panics if nil. |
-| R9 | `ctx` must outlive the pool. Do not tie `ctx` to a stack object or any resource freed before `pool_close`. | Hook called after `ctx` freed → use-after-free. |
 
 ---
 

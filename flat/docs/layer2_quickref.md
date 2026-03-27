@@ -120,6 +120,8 @@ Result:
 On non-Ok, the item is still yours.
 Dispose or retry.
 
+Note: `mbox_send` returns `.Invalid` on `id == 0` — the caller can recover and dispose the item. `pool_put` panics on `id == 0` — a zero id in a pool item is always a programming error and must not be papered over. This asymmetry is intentional.
+
 ---
 
 ## wait_receive — blocking receive, with timeout
@@ -209,8 +211,8 @@ try_receive_batch :: proc(mb: Mailbox) -> list.List
 
 - Non-blocking — never waits.
 - Returns all currently available items as `list.List`.
-- Returns empty list on: nothing available, closed, interrupted, any error.
-- If mailbox is in interrupted state: clears the flag before returning.
+- Returns empty list on: nothing available, closed, any error.
+- If mailbox is in interrupted state: returns an empty list immediately and clears the interrupted flag. Available items are NOT drained. To drain after an interrupt, clear the flag first (via the interrupt handler), then call `try_receive_batch` again.
 - Caller owns all items in the returned list.
 
 **What the list contains:**

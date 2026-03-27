@@ -72,9 +72,9 @@ master_on_put :: proc(ctx: rawptr, in_pool_count: int, m: ^Maybe(^PolyNode)) {
 
 ## Standalone Recycler use
 
-Recycler without Pool is valid.
-It is Builder with policy.
-User calls `on_get` and `on_put` directly.
+Recycler without Pool is valid.\
+It is Builder with policy.\
+User calls `on_get` and `on_put` directly.\
 User decides keep or drop without pool storage.
 
 ---
@@ -87,11 +87,11 @@ A foreign id on `pool_put` is almost always a bug:
 - memory corruption
 - use-after-free
 
-Silent recycling would create silent leaks or use-after-free later.
+Silent recycling would create silent leaks or use-after-free later.\
 A loud panic during development is better than hunting ghosts in production.
 
-Zero is always invalid because it is the zero value of `int`.
-An uninitialized `PolyNode` would have `id == 0`.
+Zero is always invalid because it is the zero value of `int`.\
+An uninitialized `PolyNode` would have `id == 0`.\
 Panicking on zero catches missing initialization immediately.
 
 ---
@@ -115,10 +115,10 @@ pool_init(p, &hooks)
 
 ## Master with Pool — extending Layer 2's Master
 
-In Layer 2, Master held Builder and mailbox references.
+In Layer 2, Master held Builder and mailbox references.\
 Now Master holds Pool and Recycler (PoolHooks) too.
 
-Builder from Layer 1 becomes the basis for your hooks.
+Builder from Layer 1 becomes the basis for your hooks.\
 The same creation and destruction logic lives in `on_get` and `on_put`.
 
 ```odin
@@ -148,6 +148,9 @@ newMaster :: proc(alloc: mem.Allocator) -> ^Master {
 }
 
 freeMaster :: proc(master: ^Master) {
+    // Required order: close → drain → dispose → free ctx (master).
+    // Freeing master before pool_close causes use-after-free in hooks.
+
     // 1. close pool — get back stored items
     nodes, _ := pool_close(master.pool)
 

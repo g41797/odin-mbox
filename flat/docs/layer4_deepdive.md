@@ -19,9 +19,8 @@ Now:
 * Mailbox is also an item.
 * Pool is also an item.
 
-Same ownership.
-Same movement.
-
+Same ownership.\
+Same movement.\
 No second system.
 
 ---
@@ -309,6 +308,7 @@ remaining := mbox_close(mb)
 // drain remaining first
 
 matryoshka_dispose(&m)
+mb = nil  // mb is now dangling — zero it
 ```
 
 

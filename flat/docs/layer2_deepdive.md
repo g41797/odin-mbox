@@ -53,7 +53,7 @@ for {
     if raw == nil { break }
     poly := (^PolyNode)(raw)        // safe: PolyNode at offset 0
     m: Maybe(^PolyNode) = poly
-    b.dtor(b.alloc, &m)
+    dtor(&b, &m)
 }
 ```
 
@@ -185,7 +185,7 @@ for {
     switch mbox_wait_receive(mb_ctrl, &m) {
     case .Ok:
         // handle control message
-        b.dtor(b.alloc, &m)
+        dtor(&b, &m)
     case .Interrupted:
         // woken — interrupted flag already cleared by try_receive_batch
         batch := try_receive_batch(mb_data)
@@ -195,13 +195,15 @@ for {
             poly := (^PolyNode)(raw)
             m2: Maybe(^PolyNode) = poly
             // process data item
-            b.dtor(b.alloc, &m2)
+            dtor(&b, &m2)
         }
     case .Closed:
         return
     }
 }
 ```
+
+`try_receive_batch` must be called on the mailbox that holds the data (`mb_data`), not on the interrupted mailbox (`mb_ctrl`). Calling it on the wrong mailbox clears the interrupt flag of an unrelated mailbox and drains the wrong queue.
 
 ---
 
@@ -301,6 +303,8 @@ for {
 - All workers call mbox_wait_receive on the same mailbox.
 - One Master sends.
 - One worker wakes. The others keep waiting.
+
+
 ```
 
 No round-robin. No routing logic. The mailbox does the distribution.
@@ -360,10 +364,7 @@ for {
 - Background processing — one Master compresses, another writes.
 - Any system where items travel between threads and every item has one owner.
 
-Builder creates.
-
-Builder destroys.
-
-Mailbox moves.
-
+Builder creates.\
+Builder destroys.\
+Mailbox moves.\
 No pool yet.

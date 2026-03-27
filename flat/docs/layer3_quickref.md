@@ -11,23 +11,23 @@ You get:
 - Reuse without re-allocation.
 - Policy hooks for flow control.
 
-At some point allocations hurt.
-Not always.
+At some point allocations hurt.\
+Not always.\
 Only under pressure.
 
 You add Pool.
 
-First version is simple.
+First version is simple.\
 It works.
 
 Then:
 - too many items
 - or not enough
 
-You add limits.
+You add limits.\
 You start to decide: keep or drop.
 
-Reuse is not free.
+Reuse is not free.\
 It needs policy.
 
 ---
@@ -104,7 +104,7 @@ Set it before calling `pool_init`.
 ### on_get rule
 
 Pool calls `on_get` on every `pool_get`.
-Exception: `Available_Only` when no item is stored.
+Exception: `Available_Only` — `on_get` is never called.
 
 Pool passes `m^` as-is.
 Hook decides what to do.
@@ -144,7 +144,9 @@ After `on_put`:
 
 - All hooks are called **outside the pool mutex** — guaranteed.
 - Hooks may safely take their own locks without deadlock risk.
-- Hooks must NOT call `pool_get` or `pool_put` — that re-enters the pool and deadlocks.
+- Hooks must NOT call `pool_get` or `pool_put` — the pool's internal state is partially committed when a hook fires. A reentrant call sees inconsistent state and corrupts the pool silently, with no immediate error.
+
+> `[itc: hook-reentrancy-guard]` — To catch violations at runtime: use a `@(thread_local) _pool_in_hook: bool` — set before calling any hook, cleared after. Assert `!_pool_in_hook` on entry to `pool_get`/`pool_put`. A pool struct field would not work — it would incorrectly block other threads calling `pool_get` concurrently.
 - Allocator stored in `ctx` must be thread-safe.
 - `ctx` must outlive the pool.
 
@@ -202,6 +204,7 @@ nodes, h := pool_close(p)
 - Pool zeros its internal hooks pointer on close.
 - Post-close `pool_get`/`pool_put` return `.Closed` or no-op.
 - Pool does not call `on_put` during close. User drains manually.
+- Calling `pool_close` on a pool created with `pool_new` but never passed to `pool_init` is safe — no hooks are registered so nothing fires. The pool handle is zeroed.
 
 ### get — acquire ownership
 
@@ -245,6 +248,8 @@ pool_get_wait :: proc(p: Pool, id: int, m: ^Maybe(^PolyNode), timeout: time.Dura
 Equivalent to `pool_get(.Available_Only)` but with blocking.
 Never calls `on_get` — only waits for an item to be stored.
 
+**Warning:** The item returned by `pool_get_wait` is in the state left by the last `on_put` call — not a freshly initialized state. Callers must reinitialize the item before use. This differs from `pool_get(.Available_Or_New)`, which always calls `on_get`.
+
 `pool_get_wait` with timeout = 0 is the same as `pool_get` with `Available_Only`.
 
 | `timeout` | Behavior |
@@ -258,6 +263,7 @@ Never calls `on_get` — only waits for an item to be stored.
 | `.Ok` | item acquired — `m^` set to item |
 | `.Not_Available` | no item stored (non-blocking or timeout expired) |
 | `.Closed` | pool is closed, or closed while waiting |
+| `.Already_In_Use` | `m^` already holds an item — caller error |
 
 If `pool_close` is called while a Master is waiting, all waiters wake and receive `.Closed`.
 
@@ -316,6 +322,8 @@ pool_put_all :: proc(p: Pool, m: ^Maybe(^PolyNode))
 
 Walks the linked list starting at `m^`, calling `pool_put` on each node.
 Panics on zero or unknown id in any node.
+
+If the panic fires on node N in a chain of M nodes, nodes N+1 through M are never returned to the pool and leak. Pre-validate all ids before calling `pool_put_all` if you need to avoid this.
 
 ---
 

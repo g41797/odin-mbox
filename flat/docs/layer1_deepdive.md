@@ -169,8 +169,6 @@ dtor :: proc(b: ^Builder, m: ^Maybe(^PolyNode)) {
     }
     m^ = nil
 }
-    m^ = nil
-}
 ```
 
 ### What ctor does inside (so you don't have to)
@@ -197,9 +195,9 @@ b := make_builder(alloc)
 m := ctor(&b, int(ItemId.Event))
 ```
 
-Builder prevents the mistakes.
-You don't think about wrapping.
-You don't forget to set id.
+Builder prevents the mistakes.\
+You don't think about wrapping.\
+You don't forget to set id.\
 You don't accidentally `defer free` the original pointer.
 
 > **Note for hook implementors.**
@@ -442,8 +440,5 @@ You'll forget. Or you'll read `m.ptr` while `m.valid` is false.
 | transfer | `m^ = nil` | two steps, easy to forget |
 | compiler help | yes | no |
 | memory | same cost | same cost, more noise |
-
----
-|
 
 ---

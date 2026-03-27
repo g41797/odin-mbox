@@ -38,21 +38,6 @@ The `dtor` function ends with `m^ = nil` and `}` appearing twice. Copy/paste art
 
 ---
 
-### I3 — Corrupt text at end of `layer2_deepdive.md`
-
-**Where:** `layer2_deepdive.md`, lines 357–360.
-
-```
-Builder creates. Builder destroys. Mailbox moves. No pool yet.
-t.
- pool yet.
-t.
-```
-
-Two overlapping fragment copies of the same sentence. Should be one clean sentence.
-
----
-
 ### I4 — `on_get` exception wording is ambiguous for `Available_Only`
 
 **Where:** `layer3_quickref.md`, "on_get rule" section:

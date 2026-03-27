@@ -1,7 +1,7 @@
 # Layer 3 — Pool + Recycler — Quick Reference
 
-> See [Deep Dive](layer3_deepdive.md) for hook examples, patterns, and extended explanations.
->
+> See [Deep Dive](layer3_deepdive.md) for hook examples, patterns, and extended explanations.\
+>\
 > **Prerequisite:** [Layer 1](layer1_quickref.md) + [Layer 2](layer2_quickref.md).
 
 ---
@@ -49,19 +49,19 @@ It needs policy.
 | `pool_put` | nothing | `m^` is `nil` after the call — pool took it |
 | `pool_close` | `(list.List, ^PoolHooks)` | always succeeds — drain the returned list |
 
-For `pool_put`: if `m^` is still non-nil after the call, the pool is closed.
-You own the item.
+For `pool_put`: if `m^` is still non-nil after the call, the pool is closed.\
+You own the item.\
 Dispose manually.
 
-For `pool_get` / `pool_get_wait`: any result other than `.Ok` has a specific meaning.
+For `pool_get` / `pool_get_wait`: any result other than `.Ok` has a specific meaning.\
 See the result table below.
 
 ---
 
 ## Recycler — your hooks for the pool
 
-Builder from Layer 1 creates and destroys by id.
-Recycler extends that idea.
+Builder from Layer 1 creates and destroys by id.\
+Recycler extends that idea.\
 Recycler adds:
 - **Reuse** — reinitialize instead of destroy + create.
 - **Policy** — decide whether to keep or drop.
@@ -86,27 +86,27 @@ PoolHooks :: struct {
 }
 ```
 
-Two procedures only.
-Both communicate through `m`.
+Two procedures only.\
+Both communicate through `m`.\
 Both are required.
 
-`ctx` may be nil.
-Pool passes it as-is.
+`ctx` may be nil.\
+Pool passes it as-is.\
 Hook must handle nil `ctx` safely.
 
 `ids` is a `[dynamic]int` owned by the user:
 - Populate with `append` before calling `pool_init`.
 - Delete in `freeMaster` before `free(master, alloc)`.
 
-**`ctx` is runtime** — cannot be set in a `::` compile-time constant.
+**`ctx` is runtime** — cannot be set in a `::` compile-time constant.\
 Set it before calling `pool_init`.
 
 ### on_get rule
 
-Pool calls `on_get` on every `pool_get`.
+Pool calls `on_get` on every `pool_get`.\
 Exception: `Available_Only` — `on_get` is never called.
 
-Pool passes `m^` as-is.
+Pool passes `m^` as-is.\
 Hook decides what to do.
 
 | Entry state | Meaning | Hook must |
@@ -114,7 +114,7 @@ Hook decides what to do.
 | `m^ == nil` | no item available | create a new item, set `node.id = id`, set `m^` |
 | `m^ != nil` | recycled item | reinitialize for reuse |
 
-`in_pool_count`: number of items with this `id` currently idle in the pool.
+`in_pool_count`: number of items with this `id` currently idle in the pool.\
 Not total live objects.
 
 After `on_get`:
@@ -124,7 +124,7 @@ After `on_get`:
 | `m^ != nil` | item ready — pool returns `.Ok` to caller |
 | `m^ == nil` | pool returns `.Not_Created` to caller |
 
-`.Not_Created` is not always an error.
+`.Not_Created` is not always an error.\
 Hook may return nil on purpose.
 
 ### on_put rule
@@ -154,10 +154,10 @@ After `on_put`:
 
 ## Pool API
 
-Pool holds reusable items.
-Works with `^PolyNode` only.
-Does not know your types.
-Pool is just storage.
+Pool holds reusable items.\
+Works with `^PolyNode` only.\
+Does not know your types.\
+Pool is just storage.\
 All lifecycle decisions live in `PoolHooks`.
 
 ### Types
@@ -245,7 +245,7 @@ Both `pool_get` and `pool_get_wait` apply the same entry checks:
 pool_get_wait :: proc(p: Pool, id: int, m: ^Maybe(^PolyNode), timeout: time.Duration) -> Pool_Get_Result
 ```
 
-Equivalent to `pool_get(.Available_Only)` but with blocking.
+Equivalent to `pool_get(.Available_Only)` but with blocking.\
 Never calls `on_get` — only waits for an item to be stored.
 
 **Warning:** The item returned by `pool_get_wait` is in the state left by the last `on_put` call — not a freshly initialized state. Callers must reinitialize the item before use. This differs from `pool_get(.Available_Or_New)`, which always calls `on_get`.
@@ -285,12 +285,12 @@ How it works:
 
 Open pool → `on_put` decides: hook sets `m^=nil` (disposed) or leaves `m^!=nil` (stored).
 
-> **Closed pool + valid id:** `pool_put` returns with `m^` still non-nil. Caller owns the item.
+> **Closed pool + valid id:** `pool_put` returns with `m^` still non-nil. Caller owns the item.\
 > Must dispose manually. Does not panic.
 
 ### defer pool_put — when is it safe?
 
-`pool_put` with `m^ == nil` is always a no-op.
+`pool_put` with `m^ == nil` is always a no-op.\
 No id check. No panic.
 
 This means `defer pool_put` can be placed immediately after `m: Maybe(^PolyNode)`, before `pool_get`:
@@ -309,7 +309,7 @@ Three outcomes when `defer pool_put` fires:
 - `m^ != nil` (item was not transferred) → `pool_put` recycles or `on_put` disposes.
 - `m^ != nil` with unknown id or zero id → `pool_put` panics — programming error.
 
-Safe for valid ids.
+Safe for valid ids.\
 The panic is the correct behavior — it tells you exactly where the bug is.
 
 > `[itc: defer-put-early]` — candidate for `design/sync/new-idioms.md`.
@@ -320,7 +320,7 @@ The panic is the correct behavior — it tells you exactly where the bug is.
 pool_put_all :: proc(p: Pool, m: ^Maybe(^PolyNode))
 ```
 
-Walks the linked list starting at `m^`, calling `pool_put` on each node.
+Walks the linked list starting at `m^`, calling `pool_put` on each node.\
 Panics on zero or unknown id in any node.
 
 If the panic fires on node N in a chain of M nodes, nodes N+1 through M are never returned to the pool and leak. Pre-validate all ids before calling `pool_put_all` if you need to avoid this.

@@ -70,7 +70,7 @@ This is _discipline_, not enforcement.
 
 ### Transfer
 
-**Before transfer:**
+**Before transfer:**\
 ```
 ┌───────────┐
 │   ptr ────┼──► [item]
@@ -78,7 +78,7 @@ This is _discipline_, not enforcement.
   m^ != nil (yours)
 ```
 
-**After transfer:**
+**After transfer:**\
 ```
 ┌───────────┐
 │    nil    │   [item] → now held by someone else
@@ -88,7 +88,7 @@ This is _discipline_, not enforcement.
 
 ### Receive
 
-**Before receive:**
+**Before receive:**\
 ```
 ┌───────────┐
 │    nil    │
@@ -96,7 +96,7 @@ This is _discipline_, not enforcement.
   m^ == nil (empty)
 ```
 
-**After receive:**
+**After receive:**\
 ```
 ┌───────────┐
 │   ptr ────┼──► [item]   ← handed to you
@@ -200,10 +200,10 @@ You don't think about wrapping.\
 You don't forget to set id.\
 You don't accidentally `defer free` the original pointer.
 
-> **Note for hook implementors.**
-> In full matryoshka with Pool, this pattern appears only inside `on_get`.
-> User code calls `pool_get` — never `new` directly.
-> `on_get` allocates (when `m^==nil`), sets id, and sets `m^`; the pool returns it to the caller.
+> **Note for hook implementors.**\
+> In full matryoshka with Pool, this pattern appears only inside `on_get`.\
+> User code calls `pool_get` — never `new` directly.\
+> `on_get` allocates (when `m^==nil`), sets id, and sets `m^`; the pool returns it to the caller.\
 > Outside of hooks, this is not a user-code pattern.
 
 ### Standalone use
@@ -231,7 +231,7 @@ But even there, the simplest Builder — just ctor and dtor called from on_get/o
 
 ### Produce
 
-Allocate items.
+Allocate items.\
 Push to intrusive list:
 
 <!-- snippet: examples/layer1/produce_consume.odin:32-55 -->
@@ -340,8 +340,8 @@ With `^Maybe(^PolyNode)`, `m^ = nil` is the rule:
 - API leaves it on failure → "I didn't take it, still yours."
 - You check it to know if you need to free it.
 
-This makes `defer pool_put(&p, &m)` safe.
-`pool_put` sees `m^ == nil` and does nothing.
+This makes `defer pool_put(&p, &m)` safe.\
+`pool_put` sees `m^ == nil` and does nothing.\
 With `^^PolyNode`, you'd have to track that by hand.
 
 **Simpler view:**
@@ -352,7 +352,7 @@ m^ == nil     → nothing inside    → you don't own it
 m^ != nil     → item inside       → you own it
 ```
 
-`^^PolyNode` only has two levels.
+`^^PolyNode` only has two levels.\
 You lose the difference between "I gave it away" and "I never had one."
 
 **The Result:** `Maybe` carries the ownership bit for free. And `m^.?` is the safe way to read it.
@@ -428,7 +428,7 @@ m.ptr   = nil
 m.valid = false
 ```
 
-You'll forget. Or you'll read `m.ptr` while `m.valid` is false.
+You'll forget. Or you'll read `m.ptr` while `m.valid` is false.\
 `Maybe` and the `.?` operator stop you from doing that.
 
 **Summary:**

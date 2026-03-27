@@ -1,7 +1,7 @@
 # Layer 4 — Meta — Infrastructure as Items — Deep Dive
 
-> See [Quick Reference](layer4_quickref.md) for API shape and rules.
->
+> See [Quick Reference](layer4_quickref.md) for API shape and rules.\
+>\
 > **Prerequisite:** Layer 1 + Layer 2 + Layer 3.
 
 ---
@@ -68,7 +68,7 @@ Matryoshka casts back to internal structs.
 
 ## ID split — data vs infrastructure
 
-One field.
+One field.\
 Clear rule.
 
 | id    | meaning     |
@@ -194,7 +194,7 @@ No special rules.
 
 ## Example — passing a mailbox
 
-Master A creates mailbox.
+Master A creates mailbox.\
 Master A sends it to Master B.
 
 ### Sender:
@@ -272,8 +272,8 @@ Use only for special control flows.
 
 ## Pool and infrastructure
 
-You cannot do this.
-Do not try to use Pool's get/put for Mailboxes or Pools.
+You cannot do this.\
+Do not try to use Pool's get/put for Mailboxes or Pools.\
 The Pool will treat them as a "foreign" id and panic.
 ---
 

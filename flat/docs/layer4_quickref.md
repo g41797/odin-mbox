@@ -1,8 +1,8 @@
 # Layer 4 — Meta — Infrastructure as Items — Quick Reference
 
-> See previous layers for basics.
-> Layer 1 — ownership.
-> Layer 2 — movement.
+> See previous layers for basics.\
+> Layer 1 — ownership.\
+> Layer 2 — movement.\
 > Layer 3 — reuse.
 
 ---
@@ -13,14 +13,14 @@ You get:
 * Same ownership rules everywhere.
 * Same transport for everything.
 
-No new magic.
+No new magic.\
 Just one model applied everywhere.
 
 ---
 
 ## Everything is a PolyNode
 
-Mailbox is an item.
+Mailbox is an item.\
 Pool is an item.
 
 They embed `PolyNode` at offset 0.
@@ -46,14 +46,14 @@ Mailbox :: distinct ^PolyNode
 Pool    :: distinct ^PolyNode
 ```
 
-You pass them as `^PolyNode`.
+You pass them as `^PolyNode`.\
 You cast only inside matryoshka.
 
 ---
 
 ## ID rules
 
-One field.
+One field.\
 Two meanings by convention.
 
 | Value | Meaning        |
@@ -71,7 +71,7 @@ ID_POOL    = -2
 
 Do not mix ranges.
 
-User owns positive ids.
+User owns positive ids.\
 Matryoshka uses negative ids.
 
 ---
@@ -85,7 +85,7 @@ Same rules:
 * `m^ != nil` → you own it
 * `m^ == nil` → not yours
 
-Mailbox follows the same rules.
+Mailbox follows the same rules.\
 Pool follows the same rules.
 
 Nothing special here.
@@ -198,8 +198,8 @@ Use only if you know why.
 
 ## Pooling Tools
 
-You cannot do this.
-Do not try to get/put Mailboxes or Pools into a Pool.
+You cannot do this.\
+Do not try to get/put Mailboxes or Pools into a Pool.\
 The Pool will treat them as a "foreign" id and panic.
 
 ---

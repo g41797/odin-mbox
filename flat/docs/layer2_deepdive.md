@@ -1,7 +1,7 @@
 # Layer 2 — Mailbox + Master — Deep Dive
 
-> See [Quick Reference](layer2_quickref.md) for API signatures and contracts.
->
+> See [Quick Reference](layer2_quickref.md) for API signatures and contracts.\
+>\
 > **Prerequisite:** [Layer 1](layer1_quickref.md) (PolyNode, Maybe, Builder).
 
 ---
@@ -164,37 +164,38 @@ All items destroyed by Builder.dtor.
 
 ### Two-mailbox interrupt + batch
 
-Master blocks on a control mailbox.
+`mb_main` — the mailbox you block on.
+`mb_oob` — out-of-band side channel.
 
-Another Master interrupts it when data is ready on a second mailbox.
-
-Master wakes, drains the data mailbox in batch.
+Master blocks on `mb_main`.
+`mb_oob` carries extra data delivered alongside the interrupt.
+Master wakes, drains `mb_oob` in batch.
 
 ```
 ┌─────────────┐                        ┌─────────────┐
 │  Master A   │                        │  Master B   │
-│             ├── mb_ctrl ◄════════════┤             │
+│             ├── mb_main ◄════════════┤             │
 │             │        (interrupt)     │             ├── inbox ◄═
-│             ├── mb_data ◄════════════┤             │
+│             ├── mb_oob  ◄════════════┤             │
 └─────────────┘                        └─────────────┘
 ```
 
 ```odin
 for {
     m: Maybe(^PolyNode)
-    switch mbox_wait_receive(mb_ctrl, &m) {
+    switch mbox_wait_receive(mb_main, &m) {
     case .Ok:
-        // handle control message
+        // handle main message
         dtor(&b, &m)
     case .Interrupted:
-        // woken — interrupted flag already cleared by try_receive_batch
-        batch := try_receive_batch(mb_data)
+        // woken — drain the out-of-band mailbox
+        batch := try_receive_batch(mb_oob)
         for {
             raw := list.pop_front(&batch)
             if raw == nil { break }
             poly := (^PolyNode)(raw)
             m2: Maybe(^PolyNode) = poly
-            // process data item
+            // process oob item
             dtor(&b, &m2)
         }
     case .Closed:
@@ -203,7 +204,9 @@ for {
 }
 ```
 
-`try_receive_batch` must be called on the mailbox that holds the data (`mb_data`), not on the interrupted mailbox (`mb_ctrl`). Calling it on the wrong mailbox clears the interrupt flag of an unrelated mailbox and drains the wrong queue.
+Call `try_receive_batch` on `mb_oob`, not on `mb_main`.\
+Wrong mailbox: clears the interrupt flag of the wrong mailbox.\
+Wrong mailbox: drains the wrong queue.
 
 ---
 
@@ -287,17 +290,17 @@ for {
 
 ### Fan-Out
 
-                      ┌──────────┐
-                 ╔════│Worker A  │
-                 ║    │          ├── inbox ◄═
-┌──────────┐     ║    └──────────┘
-│ Master A ├── out    ┌──────────┐
-│          │  ════►═══│Worker B  │
-│          ├── in ◄═  │          ├── inbox ◄═
-└──────────┘     ║    └──────────┘
-                 ║    ┌──────────┐
-                 ╚════│Worker C  │
-                      │          ├── inbox ◄═
+                      ┌──────────┐\
+                 ╔════│Worker A  │\
+                 ║    │          ├── inbox ◄═\
+┌──────────┐     ║    └──────────┘\
+│ Master A ├── out    ┌──────────┐\
+│          │  ════►═══│Worker B  │\
+│          ├── in ◄═  │          ├── inbox ◄═\
+└──────────┘     ║    └──────────┘\
+                 ║    ┌──────────┐\
+                 ╚════│Worker C  │\
+                      │          ├── inbox ◄═\
                       └──────────┘
 
 - All workers call mbox_wait_receive on the same mailbox.
@@ -319,12 +322,12 @@ Master sends an Exit message to another Master's mailbox.
 That Master receives it and returns from its loop.
 
 ```
-┌─────────────┐                        ┌─────────────┐
-│ MainMaster  │                        │  Worker     │
-│             ├── out  ════════════════►│             │
-│             │  (Exit message)        │             ├── inbox ◄═
-│             ├── inbox ◄═             │             │
-└─────────────┘                        └─────────────┘
+┌─────────────┐                        ┌─────────────┐\
+│ MainMaster  │                        │  Worker     │\
+│             ├── out  ════════════════►│             │\
+│             │  (Exit message)        │             ├── inbox ◄═\
+│             ├── inbox ◄═             │             │\
+└─────────────┘                        └─────────────┘\
 ```
 
 ```odin

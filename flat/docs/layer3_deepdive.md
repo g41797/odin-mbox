@@ -1,17 +1,17 @@
 # Layer 3 — Pool + Recycler — Deep Dive
 
-> See [Quick Reference](layer3_quickref.md) for API signatures and contracts.
->
+> See [Quick Reference](layer3_quickref.md) for API signatures and contracts.\
+>\
 > **Prerequisite:** [Layer 1](layer1_quickref.md) + [Layer 2](layer2_quickref.md).
 
 ---
 
 ## Recycler — from Builder to hooks
 
-You already have Builder from Layer 1.
+You already have Builder from Layer 1.\
 Builder creates and destroys by id.
 
-Recycler extends that idea.
+Recycler extends that idea.\
 Recycler adds:
 - **Reuse** — reinitialize instead of destroy + create.
 - **Policy** — decide whether to keep or drop.
@@ -183,7 +183,7 @@ freeMaster :: proc(master: ^Master) {
 }
 ```
 
-Pool borrows hooks — pointer, not copy.
+Pool borrows hooks — pointer, not copy.\
 `freeMaster` owns the full teardown.
 
 ---
@@ -209,7 +209,7 @@ for _ in 0..<100 {
 
 ## Pool Get Modes — examples
 
-Mode is a per-call parameter of `pool_get`.
+Mode is a per-call parameter of `pool_get`.\
 Not a pool-wide setting.
 
 ```odin
@@ -232,17 +232,17 @@ if pool_get(master.pool, int(FlowId.Chunk), .Available_Only, &m) != .Ok {
 
 ### Builder to Pool — simplest upgrade from Layer 2
 
-Replace Builder.ctor/dtor calls with pool_get/pool_put.
+Replace Builder.ctor/dtor calls with pool_get/pool_put.\
 Same patterns, now with recycling.
 
-Layer 2 sender:
+Layer 2 sender:\
 ```odin
 m := b.ctor(b.alloc, int(FlowId.Chunk))
 // fill
 mbox_send(mb, &m)
 ```
 
-Layer 3 sender:
+Layer 3 sender:\
 ```odin
 m: Maybe(^PolyNode)
 defer pool_put(p, &m)  // [itc: defer-put-early]
@@ -258,7 +258,7 @@ mbox_send(mb, &m)
 
 ### Backpressure
 
-`on_put` checks `in_pool_count`.
+`on_put` checks `in_pool_count`.\
 Too many idle items → dispose.
 
 ```odin
@@ -269,7 +269,7 @@ if in_pool_count > 400 {
 }
 ```
 
-Start simple.
+Start simple.\
 Add limits when it hurts.
 
 ---
@@ -286,7 +286,7 @@ Add limits when it hurts.
 └─────────────┘                        └─────────────┘
 ```
 
-**Setup:**
+**Setup:**\
 ```odin
 FlowId :: enum int { Chunk = 1, Progress = 2 }
 
@@ -294,7 +294,7 @@ master := newMaster(context.allocator)
 defer freeMaster(master)
 ```
 
-**Sender Master:**
+**Sender Master:**\
 ```odin
 m: Maybe(^PolyNode)
 defer pool_put(master.pool, &m)  // [itc: defer-put-early]
@@ -316,7 +316,7 @@ if mbox_send(mb, &m) != .Ok {
 // m^ is nil — transfer done — defer pool_put is a no-op
 ```
 
-**Receiver Master:**
+**Receiver Master:**\
 ```odin
 m: Maybe(^PolyNode)
 defer pool_put(master.pool, &m)  // safety net
@@ -348,7 +348,7 @@ case .Progress:
 - The `defer` is a safety net for paths you did not anticipate.
 - Belt and suspenders — intentional.
 
-**Shutdown:**
+**Shutdown:**\
 ```odin
 remaining := mbox_close(mb)
 
@@ -375,5 +375,5 @@ freeMaster(master)
 - Network server — request buffers from Pool, dispatched to handler Masters, response buffers returned to Pool.
 - Streaming processor — data flows through a chain of Masters, Pool absorbs allocation spikes.
 
-Same vocabulary at every level: get → fill → send → receive → put back.
+Same vocabulary at every level: get → fill → send → receive → put back.\
 Only the hooks grow when you need control.

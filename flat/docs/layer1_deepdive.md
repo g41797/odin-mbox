@@ -104,7 +104,7 @@ This is discipline, not enforcement.
 - Mailbox and Pool are opaque — they cannot track what type they hold.
 - Master is the only actor that can safely cast `^PolyNode` back to a concrete type.
 - Only one Master should hold a given item at any moment.
-- The `^Maybe(^PolyNode)` contract (nil = you don't own it) is checked at every API boundary.
+- The `^Maybe(^PolyNode)` rule (nil = you don't own it) is checked every time you pass an item.
 
 ---
 
@@ -145,7 +145,7 @@ dtor :: proc(b: ^Builder, m: ^Maybe(^PolyNode)) {
     if m == nil {
         return
     }
-    ptr, ok := m.?
+    ptr, ok := m^.?
     if !ok {
         return
     }
@@ -157,6 +157,8 @@ dtor :: proc(b: ^Builder, m: ^Maybe(^PolyNode)) {
     case:
         panic("dtor: unknown id")
     }
+    m^ = nil
+}
     m^ = nil
 }
 ```
@@ -300,129 +302,107 @@ These are real conversations between the Author and AI.
 
 ## `^Maybe(^PolyNode)` vs `^^PolyNode`
 
-**Author:** I designed how to use `^Maybe(^PolyNode)` for matryoshka, but I still don't fully understand why it has to be this way. Can't I just use `^^PolyNode`? It's simpler. Two pointers. Why do I need `Maybe` at all? Explain it to me.
+**The Question:** I designed Matryoshka to use `^Maybe(^PolyNode)`, but why the extra layer? Can't I just use `^^PolyNode`? It's just two pointers. It's simpler. Why the `Maybe`?
 
-**AI:** They are not equivalent. `^^PolyNode` is a pointer to a pointer. It gives you two nil states:
+**The Reality:** They are not the same. `^^PolyNode` is just a pointer to a pointer. It gives you two nil states:
 
 - `m == nil` — the handle itself is nil.
 - `*m == nil` — the inner pointer is null.
 
-But it has no unwrap operator. No "valid or not" semantics built into the type.
+But it has no built-in "is this valid?" check. 
 
-`Maybe(T)` in Odin is a tagged union: `union { T, nil }`. It adds the `.?` operator and one extra semantic state:
+`Maybe(T)` in Odin is a tagged union. It adds the `.?` operator and a clear meaning to the state:
 
 | Expression | `^Maybe(^PolyNode)` | `^^PolyNode` |
 |------------|---------------------|--------------|
-| `m == nil` | nil handle — programming error | same |
-| `m^ == nil` | you do NOT own the item | same (but ambiguous — was it transferred? freed? never set?) |
+| `m == nil` | nil handle — a bug | same |
+| `m^ == nil` | you do NOT own it | same (but why? who knows.) |
 | `m^ != nil` | you own it | same |
-| `ptr, ok := m.?` | safe unwrap | not available |
-| `m^ = nil` after send | unambiguous: ownership transferred | ambiguous: could mean anything |
+| ptr, ok := m^.? | safe unwrap | not possible |
+| m^ = nil after send | ownership transferred | could mean anything |
 
-The critical difference is the transfer signal. With `^^PolyNode`, setting `*m = nil` just means the inner pointer is null. Nothing more. It cannot tell the caller whether the item was transferred, freed, never allocated, or hit an error condition.
 
-With `^Maybe(^PolyNode)`, `m^ = nil` is the ownership transfer rule:
-- API sets it on success → "I took it, you no longer own it."
-- API leaves it on failure → "Still yours, I didn't take it."
-- Caller checks it to know whether to free on exit.
+The big deal is the transfer signal. With `^^PolyNode`, setting `*m = nil` just nulls a pointer. It doesn't tell the caller *why*. Did it transfer? Did it fail? Was it never there?
 
-This is why `defer pool_put(&p, &m)` works:
-`pool_put` checks `m^ == nil` → no-op if already transferred.
-With `^^PolyNode`, you cannot make that check reliably.
+With `^Maybe(^PolyNode)`, `m^ = nil` is the rule:
+- API sets it on success → "I took it, it's mine now."
+- API leaves it on failure → "I didn't take it, still yours."
+- You check it to know if you need to free it.
 
-**Author:** OK, too much. What about three nil levels?
+This makes `defer pool_put(&p, &m)` safe.
+`pool_put` sees `m^ == nil` and does nothing.
+With `^^PolyNode`, you'd have to track that by hand.
 
-**AI:** Right, simpler:
+**Simpler view:**
 
 ```
-m == nil      → nil handle        → programming error, return .Invalid
-m^ == nil     → inner is nil      → don't own it (transferred or nothing)
-m^ != nil     → inner is non-nil  → you own it
+m == nil      → nil handle        → bug, returns .Invalid
+m^ == nil     → nothing inside    → you don't own it
+m^ != nil     → item inside       → you own it
 ```
 
-`^^PolyNode` only has two of these levels.
-The difference between "transferred" and "never had it" disappears.
+`^^PolyNode` only has two levels.
+You lose the difference between "I gave it away" and "I never had one."
 
-**Author:** So Maybe carries the ownership bit for free. And `.?` is the safe way to read it.
+**The Result:** `Maybe` carries the ownership bit for free. And `m^.?` is the safe way to read it.
 
-**AI:** Exactly. `Maybe` puts the ownership contract into the type:
-- nil inner = not yours.
-- non-nil inner = yours.
-- `.?` = safe check-and-extract in one step.
-
-`^^PolyNode` is just a raw double pointer with no ownership meaning.
-
-**Author:** Keep `^Maybe(^PolyNode)`.
+It puts the rules into the type:
+- nil = not yours.
+- non-nil = yours.
+- `m^.?` = the safe way to check and grab the item in one go.
 
 ---
 
-## The `.?` unwrap operator
+## The `.?` operator
 
-**Author:** I keep seeing `.?` in the code. Two forms. Which one do I use?
+**The Problem:** Two forms of `.?`. Which one is the right one?
 
-**AI:** `Maybe(T)` in Odin is a tagged union: `union { T, nil }`. `.?` is the unwrap operator.
+**The Rule:** Always use the two-value form.
 
-Two-value form — **use this**:
-
-```
-ptr, ok := m.?
+```odin
+ptr, ok := m^.?
 ```
 
-Safe. No panic. `ok` is `false` if `m == nil`. `ptr` is only valid when `ok` is `true`.
+It's safe. No panics. `ok` is `false` if `m == nil`. 
 
-Single-value form — **big no-no**:
+The single-value form is a trap:
 
-```
+```odin
 ptr := m.?
 ```
 
-Returns the inner value directly. **Panics at runtime if `m == nil`.** In concurrent code a panic here means a crash with no recovery.
+It returns the value directly but **panics at runtime if m is nil.** In a multi-threaded app, this is a crash.
 
-**Author:** So always two-value form. Got it.
-
-**AI:** Yes. Here's the summary:
-
-| Form | Rule |
-|------|------|
-| `ptr, ok := m.?` | always use this — check and extract in one step |
-| `ptr := m.?` | big no-no — panics if nil |
-| `^^PolyNode` | neither form available — raw dereference only |
-
-**Author:** Do not use the single-value form in matryoshka code.
+| Form | The Rule |
+|------|----------|
+| `ptr, ok := m.?` | use this — check and extract in one step |
+| `ptr := m.?` | don't use this — it will crash your app |
 
 ---
 
-> ***Author's note.*** *This dialog never was. I never was fully sure about `^Maybe(^PolyNode)`. Still not sure. But it's right.*
+> ***Author's note.*** *This dialogue never was. I never was fully sure about `^Maybe(^PolyNode)`. Still not sure. But it's right.*
 
 ---
 
-## How to implement `Maybe` "magic" using `^^PolyNode`
+## The manual way (with `^^PolyNode`)
 
-> *Author wanted to skip this section. AI insisted. Author agreed.*
+> *I wanted to skip this. I was convinced to keep it. Here is why `Maybe` wins.*
 
-You cannot use `^^PolyNode` directly as a drop-in replacement.
-To get the same guarantees you have to add a flag by hand.
+If you use `^^PolyNode`, you have to add a flag by hand to get the same safety.
 
-This is what the equivalent of `^Maybe(^PolyNode)` looks like with raw pointers:
+It would look like this:
 
-```
+```odin
 // Manual equivalent of Maybe(^PolyNode)
 Owned :: struct {
     ptr:   ^PolyNode,
-    valid: bool,       // the flag Maybe carries for free
+    valid: bool,       // the flag Maybe gives you for free
 }
 ```
 
-Every call site that now writes:
+Every single time you want to use it:
 
-```
-m: Maybe(^PolyNode)
-ptr, ok := m.?
-```
-
-would become:
-
-```
+```odin
 m: Owned
 if m.valid {
     ptr := m.ptr
@@ -430,32 +410,29 @@ if m.valid {
 }
 ```
 
-And every API that now does:
+And every time you hand it over:
 
-```
-m^ = nil    // transfer complete
-```
-
-would have to do:
-
-```
+```odin
 m.ptr   = nil
 m.valid = false
 ```
 
-Every. Single. Call. Site.
-
-You also lose the compiler's help: nothing stops you from reading `m.ptr` while `m.valid == false`.
-With `Maybe`, the `.?` operator enforces the check — you cannot get the pointer without going through it.
+You'll forget. Or you'll read `m.ptr` while `m.valid` is false. 
+`Maybe` and the `.?` operator stop you from doing that. 
 
 **Summary:**
 
 | | `^Maybe(^PolyNode)` | `^^PolyNode` + manual flag |
 |---|---|---|
-| ownership bit | built into the type | you add and maintain it |
-| safe extract | `.?` — one step | `if valid { use ptr }` — two steps, error-prone |
-| transfer | `m^ = nil` | `m.ptr = nil; m.valid = false` |
-| compiler enforces check | yes | no |
-| extra memory | discriminant word | `bool` field (same cost, more noise) |
+| ownership bit | built-in | you maintain it by hand |
+| safe extract | `m^.?` — one step | `if valid { use ptr }` — error-prone |
+| transfer | `m^ = nil` | two steps, easy to forget |
+| compiler help | yes | no |
+| memory | same cost | same cost, more noise |
 
 ---
+|
+
+---
+
+

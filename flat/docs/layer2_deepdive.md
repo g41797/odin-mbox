@@ -14,7 +14,7 @@ for {
     switch mbox_wait_receive(mb, &m) {
     case .Ok:
         // process item
-        b.dtor(b.alloc, &m)
+        dtor(&b, &m)
 
     case .Interrupted:
         // woken without a message — check external state
@@ -33,9 +33,9 @@ for {
 ```
 
 Key points:
-- `.Interrupted` delivers no message — `m` remains nil.
+- `.Interrupted` hands over no message — `m` stays nil.
 - The receiver must loop back to `mbox_wait_receive`.
-- The interrupted flag is self-clearing — no explicit reset needed.
+- The interrupted flag clears itself — no reset needed.
 
 ---
 
@@ -75,7 +75,7 @@ for {
     poly := (^PolyNode)(raw)
     m: Maybe(^PolyNode) = poly
     // process item
-    b.dtor(b.alloc, &m)
+    dtor(&b, &m)
 }
 ```
 
@@ -146,9 +146,9 @@ Master B receives, processes, sends response.
                                          resp := b.ctor(alloc, resp_id)
                                          fill response
   mbox_wait_receive(mb_resp, &m) ◄════  mbox_send(mb_resp, &resp)
-                                         b.dtor(alloc, &m)
+                                         dtor(&b, &m)
   process response
-  b.dtor(alloc, &m)
+  dtor(&b, &m)
 ```
 
 All items created by Builder.ctor.
@@ -224,7 +224,7 @@ Each Master: receive → process → send forward.
   Master C:
       mbox_wait_receive(mb2, &m)
       consume
-      b.dtor(alloc, &m)     // final consumer destroys
+      dtor(&b, &m)     // final consumer destroys
 ```
 
 ---
@@ -256,7 +256,7 @@ for {
     m: Maybe(^PolyNode)
     switch mbox_wait_receive(mb, &m) {
     case .Ok:
-        ptr, ok := m.?
+        ptr, ok := m^.?
         if !ok { continue }
         switch ItemId(ptr.id) {
         case .Event:
@@ -264,7 +264,7 @@ for {
         case .Sensor:
             // process sensor
         }
-        b.dtor(b.alloc, &m)
+        dtor(&b, &m)
     case .Closed:
         return
     }
@@ -329,15 +329,16 @@ for {
     m: Maybe(^PolyNode)
     switch mbox_wait_receive(worker.inbox, &m) {
     case .Ok:
-        ptr, ok := m.?
+        ptr, ok := m^.?
         if !ok { continue }
         if ptr.id == int(ExitId.Exit) {
-            b.dtor(b.alloc, &m)
+            dtor(&b, &m)
             return  // Master returns from its loop — done
         }
         // handle other messages
-        b.dtor(b.alloc, &m)
+        dtor(&b, &m)
     case .Closed:
+
         return
     }
 }
@@ -354,3 +355,6 @@ for {
 - Any system where items travel between threads and every item has one owner.
 
 Builder creates. Builder destroys. Mailbox moves. No pool yet.
+t.
+ pool yet.
+t.

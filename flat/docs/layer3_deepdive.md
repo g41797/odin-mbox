@@ -27,7 +27,7 @@ master_on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyN
     master := (^Master)(ctx)
     if m^ == nil {
         // no item available — create new one using master.alloc
-        switch FlowId(id) {
+        switch ItemId(id) {
         case .Chunk:
             c := new(Chunk, master.alloc)
             c.id = id
@@ -39,10 +39,11 @@ master_on_get :: proc(ctx: rawptr, id: int, in_pool_count: int, m: ^Maybe(^PolyN
         }
     } else {
         // recycled item — reinitialize using master fields
-        node := m^
-        switch FlowId(node.id) {
-        case .Chunk:    (^Chunk)(node).len = 0
-        case .Progress: (^Progress)(node).percent = 0
+        ptr, ok := m^.?
+        if !ok { return } // Should not happen if m^ != nil
+        switch ItemId(ptr.id) {
+        case .Chunk:    (^Chunk)(ptr).len = 0
+        case .Progress: (^Progress)(ptr).percent = 0
         }
     }
 }
@@ -86,8 +87,8 @@ A foreign id on `pool_put` is almost always a bug:
 - memory corruption
 - use-after-free
 
-Silent recycling would create silent starvation or use-after-free later.
-A loud panic during development is far cheaper than hunting ghosts in production.
+Silent recycling would create silent leaks or use-after-free later.
+A loud panic during development is better than hunting ghosts in production.
 
 Zero is always invalid because it is the zero value of `int`.
 An uninitialized `PolyNode` would have `id == 0`.
@@ -95,7 +96,7 @@ Panicking on zero catches missing initialization immediately.
 
 ---
 
-## ID example
+## Setup example
 
 ```odin
 FlowId :: enum int {
@@ -103,7 +104,7 @@ FlowId :: enum int {
     Progress = 2,
 }
 
-// Registration: populate hooks.ids before pool_init
+// Setup: populate hooks.ids before pool_init
 append(&hooks.ids, int(FlowId.Chunk))
 append(&hooks.ids, int(FlowId.Progress))
 p := pool_new(alloc)

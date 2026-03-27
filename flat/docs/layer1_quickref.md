@@ -22,7 +22,7 @@ import list "core:container/intrusive/list"
 // ...
 PolyNode :: struct {
     using node: list.Node, // intrusive link — .prev, .next
-    id:         int, // type discriminator, must be != 0
+    id:         int, // type tag, must be != 0
 }
 ```
 
@@ -80,27 +80,27 @@ Two states:
 - `m^ == nil` → not yours.
 - `m^ != nil` → yours. You must give it away or clean it up.
 
-### Ownership contract
+### The Ownership Deal
 
-All matryoshka APIs pass items using `^Maybe(^PolyNode)`.
+All Matryoshka functions pass items using `^Maybe(^PolyNode)`.
 
 ```odin
 m: Maybe(^PolyNode)
 
 // m^ != nil  →  you own it. You must transfer, recycle, or dispose it.
 // m^ == nil  →  not yours. Transfer complete, or nothing here.
-// m == nil   →  nil handle. Invalid. API returns error.
+// m == nil   →  nil handle. This is a bug. Function returns error.
 ```
 
-**Entry rules:**
+**What you send:**
 
-| `m` value | Meaning | API response |
+| `m` value | Meaning | What happens |
 |-----------|---------|--------------|
 | `m == nil` | nil handle | error |
-| `m^ == nil` | caller holds nothing | depends on API |
-| `m^ != nil` | caller owns item | proceed |
+| `m^ == nil` | you hold nothing | depends on function |
+| `m^ != nil` | you own the item | proceed |
 
-**Exit rules:**
+**What you get back:**
 
 | Event | `m^` after return |
 |-------|------------------|

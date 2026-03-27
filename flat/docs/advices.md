@@ -97,8 +97,9 @@ drain_list :: proc(l: ^list.List, alloc: mem.Allocator) {
 
 ### After transfer
 
-After a successful transfer (`mbox_send`, `pool_put`), `m^` is nil.
+After a successful transfer to an **open** pool or mailbox, `m^` is nil.
 A deferred cleanup that checks `m^` becomes a no-op — no double free.
+Transfer to a closed pool or mailbox leaves `m^` non-nil — you still own it.
 
 ---
 
@@ -128,8 +129,8 @@ Panic immediately. Do not silently free. Do not return an error.
 You are not going to memorize this table.
 But when something breaks, you will come back here.
 
-| # | Rule | Consequence of violation |
-|---|------|--------------------------|
+| # | Rule | What breaks |
+|---|------|-------------|
 | R1 | `m^` is the ownership bit. Non-nil = you own it. | Double-free or leak. |
 | R2 | All callbacks called outside pool mutex. | Guaranteed by pool. User may hold their own locks inside callbacks. |
 | R3 | `on_get` is called on every `pool_get` except `Available_Only` when no item stored. | Hook handles both create (`m^==nil`) and reinitialize (`m^!=nil`). |

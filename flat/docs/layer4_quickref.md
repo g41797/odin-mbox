@@ -115,7 +115,7 @@ No global factory.
 matryoshka_dispose :: proc(m: ^Maybe(^PolyNode))
 ```
 
-Algorithm:
+How it works:
 
 * Check `m == nil` → return
 * Check `m^ == nil` → return
@@ -126,7 +126,7 @@ Algorithm:
 | State  | Action                      |
 | ------ | --------------------------- |
 | closed | free using stored allocator |
-| open   | fail                        |
+| open   | panic                       |
 
 After success:
 
@@ -196,10 +196,11 @@ Use only if you know why.
 
 ---
 
-## Pooling infrastructure
+## Pooling Tools
 
-Don't allowed - you can not get/put Mailboxes/Pools.
-Pool will acts as for "foreign" id
+You cannot do this.
+Do not try to get/put Mailboxes or Pools into a Pool.
+The Pool will treat them as a "foreign" id and panic.
 
 ---
 

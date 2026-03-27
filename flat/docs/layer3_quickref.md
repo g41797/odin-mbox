@@ -67,7 +67,7 @@ Recycler adds:
 - **Policy** — decide whether to keep or drop.
 - **Counts** — `in_pool_count` tells how many items are idle.
 - **Context** — `ctx` carries your state.
-- **Registration** — `ids` declares which item types this pool handles.
+- **Setup** — `ids` declares which item types this pool handles.
 
 ```
 Builder (Layer 1):   ctor + dtor + alloc
@@ -86,7 +86,7 @@ PoolHooks :: struct {
 }
 ```
 
-Two procs only.
+Two procedures only.
 Both communicate through `m`.
 Both are required.
 
@@ -101,7 +101,7 @@ Hook must handle nil `ctx` safely.
 **`ctx` is runtime** — cannot be set in a `::` compile-time constant.
 Set it before calling `pool_init`.
 
-### on_get contract
+### on_get rule
 
 Pool calls `on_get` on every `pool_get`.
 Exception: `Available_Only` when no item is stored.
@@ -127,7 +127,7 @@ After `on_get`:
 `.Not_Created` is not always an error.
 Hook may return nil on purpose.
 
-### on_put contract
+### on_put rule
 
 Called during `pool_put`, outside lock.
 
@@ -191,9 +191,9 @@ matryoshka_dispose :: proc(m: ^Maybe(^PolyNode))
 - Takes `^PoolHooks`.
 - Pool stores the pointer.
 - User keeps the struct.
+`pool_close` rule:
 
-`pool_close` contract:
-
+```odin
 nodes, h := pool_close(p)
 ```
 
@@ -208,6 +208,7 @@ nodes, h := pool_close(p)
 ```odin
 pool_get :: proc(p: Pool, id: int, mode: Pool_Get_Mode, m: ^Maybe(^PolyNode)) -> Pool_Get_Result
 ```
+
 
 | Mode | Behavior |
 |------|----------|
@@ -266,7 +267,7 @@ If `pool_close` is called while a Master is waiting, all waiters wake and receiv
 pool_put :: proc(p: Pool, m: ^Maybe(^PolyNode))
 ```
 
-Algorithm — in this order:
+How it works:
 
 1. Check `m.?.id`:
    - `id == 0` → **PANIC** (zero is always invalid)

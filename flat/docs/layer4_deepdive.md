@@ -110,27 +110,27 @@ No global registry.
 
 ---
 
-## matryoshka_dispose — unified teardown
+## matryoshka_dispose — one way to clean up
 
-One entry point.
+One entry point for everything.
 
 ```odin
 matryoshka_dispose :: proc(m: ^Maybe(^PolyNode))
 ```
 
-Algorithm:
+How it works:
 
 * If `m == nil` → return
 * If `m^ == nil` → return
-* Read `id`
-* Switch on id
-* Cast to internal struct
-* Check state
+* Read the `id`
+* Switch based on the id
+* Cast to the internal struct
+* Check the state
 
 | State  | Action      |
 | ------ | ----------- |
 | closed | free memory |
-| open   | fail        |
+| open   | panic       |
 
 After success:
 
@@ -273,9 +273,9 @@ Use only for special control flows.
 
 ## Pool and infrastructure
 
-Big NO-NO
-
-Every attemp to use pool's get/put for mailbox/pool will be processed as "foreign" id/
+You cannot do this.
+Do not try to use Pool's get/put for Mailboxes or Pools.
+The Pool will treat them as a "foreign" id and panic.
 ---
 
 ## Master with Meta

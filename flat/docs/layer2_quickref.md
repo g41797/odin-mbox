@@ -85,20 +85,22 @@ matryoshka_dispose :: proc(m: ^Maybe(^PolyNode))
 
 ---
 
-## send — blocking, ownership transfer
+### send — blocking, ownership transfer
 
 ```odin
 mbox_send :: proc(mb: Mailbox, m: ^Maybe(^PolyNode)) -> SendResult
 ```
 
-Entry contract:
 
-| Entry | Contract |
+Handover rules:
+
+| Entry | Rule |
 |-------|----------|
 | `m == nil` | returns `.Invalid` |
 | `m^ == nil` | returns `.Invalid` |
 | `m^.id == 0` | returns `.Invalid` |
 | `m^ != nil` | proceed |
+
 
 Result:
 

@@ -1,0 +1,23 @@
+{
+    "folders": [
+        {
+            "name": "root",
+            "path": "."
+        },
+        {
+            "name": "doll1",
+            "path": "dolls/doll1"
+        },
+        {
+            "name": "doll2",
+            "path": "dolls/doll2"
+        },
+        {
+            "name": "flat",
+            "path": "flat"
+        }
+
+    ],
+    "settings": {
+    }
+}

@@ -10,6 +10,10 @@ mbox_test.exe
 # Build artifacts
 *.a
 *.lib
+*.so
+*.dylib
+*.dll
+*.exe
 
 # Object Files
 *.o

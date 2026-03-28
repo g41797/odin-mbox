@@ -1,16 +1,15 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 g41797
+// SPDX-License-Identifier: MIT
+
 /*
-Package mbox is an inter-thread communication library for Odin.
+Package matryoshka is an inter-thread communication library for Odin.
 
-Sub-packages:
+Foundation:
+  - PolyNode: intrusive node embedded at offset 0 in every item.
+  - Maybe(^PolyNode): ownership handle used at every API boundary.
 
-  mbox/       — Mailbox($T): blocking worker-thread mailbox (condition variable)
-  nbio_mbox/  — init_nbio_mbox: nbio event-loop mailbox, concept implementation (Linux tests only)
-  loop_mbox/  — Mbox($T): non-blocking MPSC mailbox (used by nbio_mbox internally)
-  mpsc/       — Lock-free multi-producer single-consumer queue
-  wakeup/     — WakeUper interface + semaphore-backed implementation
-  pool/       — Object pool with optional blocking get and reset hook
-
-All types use intrusive linking: your message struct must have a field named "node"
-of type list.Node from core:container/intrusive/list.
+Services:
+  - Mailbox: moves items between threads with blocking receive.
+  - Pool: reusable item storage with pluggable lifecycle hooks.
 */
-package mbox
+package matryoshka

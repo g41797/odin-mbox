@@ -35,164 +35,56 @@ jobs:
             odin build . -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build mbox lib
+      - name: Build examples/layer1
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./mbox/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin build ./examples/layer1/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin build ./mbox/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin build ./examples/layer1/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build mpsc lib
+      - name: Build examples/layer2
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./mpsc/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin build ./examples/layer2/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin build ./mpsc/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin build ./examples/layer2/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Test mpsc
+      - name: Build examples/layer3
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./mpsc/ -vet -strict-style -disallow-do -o:none -debug
+            odin build ./examples/layer3/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin test ./mpsc/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+            odin build ./examples/layer3/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build wakeup lib
+      - name: Test tests/layer1
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./wakeup/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin test ./tests/layer1/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin build ./wakeup/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin test ./tests/layer1/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi
 
-      - name: Test wakeup
+      - name: Test tests/layer2
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./wakeup/ -vet -strict-style -disallow-do -o:none -debug
+            odin test ./tests/layer2/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin test ./wakeup/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+            odin test ./tests/layer2/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi
 
-      - name: Build loop_mbox lib
+      - name: Test tests/layer3
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./loop_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin test ./tests/layer3/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin build ./loop_mbox/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin test ./tests/layer3/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi
-
-      - name: Build nbio_mbox lib
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./nbio_mbox/ -build-mode:lib -vet -strict-style -o:none -debug
-          else
-            odin build ./nbio_mbox/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
-          fi
-
-      - name: Build pool lib
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./pool/ -build-mode:lib -vet -strict-style -o:none -debug
-          else
-            odin build ./pool/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
-          fi
-
-      - name: Build examples
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./examples/ -build-mode:lib -vet -strict-style -o:none -debug
-          else
-            odin build ./examples/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
-          fi
-
-      - name: Test tests
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/ -vet -strict-style -disallow-do -o:none -debug
-          else
-            odin test ./tests/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-          fi
-
-      - name: Test tests/mbox
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/mbox/ -vet -strict-style -disallow-do -o:none -debug
-          else
-            odin test ./tests/mbox/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-          fi
-
-      - name: Test tests/loop_mbox
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/loop_mbox/ -vet -strict-style -disallow-do -o:none -debug
-          else
-            odin test ./tests/loop_mbox/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-          fi
-
-      - name: Test tests/nbio_mbox
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/nbio_mbox/ -vet -strict-style -disallow-do -o:none -debug
-          else
-            odin test ./tests/nbio_mbox/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-          fi
-
-      - name: Test tests/pool
-        shell: bash
-        run: |
-          if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/pool/ -vet -strict-style -disallow-do -o:none -debug
-          else
-            odin test ./tests/pool/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
-          fi
-
-      - name: Doc smoke test
-        shell: bash
-        run: |
-          odin doc ./
-          odin doc ./mbox/
-          odin doc ./mpsc/
-          odin doc ./wakeup/
-          odin doc ./loop_mbox/
-          odin doc ./nbio_mbox/
-          odin doc ./pool/
-          odin doc ./examples/
-          odin doc ./tests/
-
-      - name: Generate doc files
-        if: matrix.os == 'ubuntu-latest' && matrix.opt == 'none'
-        shell: bash
-        run: |
-          mkdir -p doc-out
-          odin doc ./            > doc-out/mbox.txt
-          odin doc ./mbox/       > doc-out/mbox_pkg.txt
-          odin doc ./mpsc/       > doc-out/mpsc.txt
-          odin doc ./wakeup/     > doc-out/wakeup.txt
-          odin doc ./loop_mbox/   > doc-out/loop_mbox.txt
-          odin doc ./nbio_mbox/  > doc-out/nbio_mbox.txt
-          odin doc ./pool/       > doc-out/pool.txt
-          odin doc ./examples/   > doc-out/examples.txt
-          odin doc ./tests/      > doc-out/tests.txt
-
-      - name: Upload doc artifact
-        if: matrix.os == 'ubuntu-latest' && matrix.opt == 'none'
-        uses: actions/upload-artifact@v4
-        with:
-          name: odin-doc
-          path: doc-out/

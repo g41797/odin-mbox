@@ -81,8 +81,8 @@ When generating or reviewing Odin code for this project, follow these rules:
 - Every allocated resource must be released — on success and on error.
 - Use `defer` for cleanup that must happen on all exit paths.
 - After `pool_get` succeeds, ensure `pool_put` is reachable on every path (including error paths).
-- After `mbox_close`, drain the returned list. Do not discard it.
-- After `pool_close`, drain and dispose the returned list.
+- After `mbox_close`, the returned list is yours — walk it and handle each item. Do not discard it.
+- After `pool_close`, the returned list is yours — walk it and handle each item as your shutdown strategy requires.
 
 **MayItem**
 - Always use `ptr, ok := m.?` — never the single-value form.

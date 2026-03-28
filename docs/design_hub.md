@@ -95,7 +95,7 @@ Concepts from Layer 1 form the fundamental building blocks for all subsequent la
 - Guarantee: hooks called outside pool mutex.
 - `pool_put` — sets `m^ = nil` after return, or panics on zero id.
 - Panics on unknown id only when open.
-- `mbox_close` — returns remaining chain as `list.List`. Caller must drain.
+- `mbox_close` — returns remaining chain as `list.List`. Ownership transfers to caller.
 
 ### You own
 

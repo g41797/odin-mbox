@@ -1,7 +1,7 @@
 # Layer 2 — Mailbox + Master — Deep Dive
 
-> See [Quick Reference](layer2_quickref.md) for API signatures and contracts.\
->\
+> See [Quick Reference](layer2_quickref.md) for API signatures and contracts.
+>
 > **Prerequisite:** [Layer 1](layer1_quickref.md) (PolyNode, Maybe, Builder).
 
 ---
@@ -39,7 +39,7 @@ Key points:
 
 ---
 
-## Close — drain example
+## Close — handling remaining items
 
 - Walk via `list.pop_front`.
 - Cast each `^list.Node` to `^PolyNode`.
@@ -157,7 +157,7 @@ All items destroyed by Builder.dtor.
 
 Master blocks on `mb_main`.
 `mb_oob` carries extra data delivered alongside the interrupt.
-Master wakes, drains `mb_oob` in batch.
+Master wakes, receives the `mb_oob` batch.
 
 **Topology — who sends to whom:**
 
@@ -190,7 +190,7 @@ for {
         // handle main message
         dtor(&b, &m)
     case .Interrupted:
-        // woken — drain the out-of-band mailbox
+        // woken — receive from the out-of-band mailbox
         batch, res := try_receive_batch(mb_oob)
         if res != .Ok { break }
         for {
@@ -207,16 +207,15 @@ for {
 }
 ```
 
-Call `try_receive_batch` on `mb_oob`, not on `mb_main`.\
-Wrong mailbox: clears the interrupt flag of the wrong mailbox.\
-Wrong mailbox: drains the wrong queue.
+When interrupted, receive from `mb_oob` — that is where the data is.
+Calling `try_receive_batch` on `mb_main` by mistake empties the wrong queue and loses the interrupt signal.
 
 ---
 
 ### OOB — out-of-band side channel
 
-OOB is an advanced flow.\
-Not for everyday use.\
+OOB is an advanced flow.
+Not for everyday use.
 Use it only when a single mailbox cannot express what you need.
 
 Two mailboxes:
@@ -226,18 +225,18 @@ Two mailboxes:
 
 **Critical ordering rule:**
 
-Fill `mb_oob` first.\
+Fill `mb_oob` first.
 Then interrupt `mb_main`.
 
-Interrupting first is a race.\
+Interrupting first is a race.
 The receiver may call `try_receive_batch(mb_oob)` before items arrive.
 
 **Why `try_receive_batch` returns `(list.List, RecvResult)`:**
 
-In OOB flows, `mb_oob` may itself be in an unexpected state.\
-The result tells you exactly what happened:\
-`.Ok` — items ready.\
-`.Interrupted` — `mb_oob` was also interrupted, no items drained.\
+In OOB flows, `mb_oob` may itself be in an unexpected state.
+The result tells you exactly what happened:
+`.Ok` — items ready.
+`.Interrupted` — `mb_oob` was also interrupted, no items drained.
 `.Closed` — `mb_oob` was closed.
 
 Always check the result before processing the list.

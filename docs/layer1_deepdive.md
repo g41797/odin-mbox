@@ -70,7 +70,7 @@ This is _discipline_, not enforcement.
 
 ### Transfer
 
-**Before transfer:**\
+**Before transfer:**
 ```
 ┌───────────┐
 │   ptr ────┼──► [item]
@@ -78,7 +78,7 @@ This is _discipline_, not enforcement.
   m^ != nil (yours)
 ```
 
-**After transfer:**\
+**After transfer:**
 ```
 ┌───────────┐
 │    nil    │   [item] → now held by someone else
@@ -88,7 +88,7 @@ This is _discipline_, not enforcement.
 
 ### Receive
 
-**Before receive:**\
+**Before receive:**
 ```
 ┌───────────┐
 │    nil    │
@@ -96,7 +96,7 @@ This is _discipline_, not enforcement.
   m^ == nil (empty)
 ```
 
-**After receive:**\
+**After receive:**
 ```
 ┌───────────┐
 │   ptr ────┼──► [item]   ← handed to you
@@ -111,10 +111,10 @@ This is _discipline_, not enforcement.
 
 ### Why ownership matters
 
-- Mailbox and Pool are opaque — they cannot track what type they hold.
-- Master is the only actor that can safely cast `^PolyNode` back to a concrete type.
-- Only one Master should hold a given item at any moment.
-- The `^MayItem` rule (nil = you don't own it) is checked every time you pass an item.
+- Services receive `^PolyNode` and store it — they don't know the concrete type.
+- Only the code that created the item can safely cast `^PolyNode` back.
+- One item, one holder at any moment.
+- `^MayItem` makes this visible at every call site.
 
 ---
 
@@ -195,16 +195,10 @@ b := make_builder(alloc)
 m := ctor(&b, int(ItemId.Event))
 ```
 
-Builder prevents the mistakes.\
-You don't think about wrapping.\
-You don't forget to set id.\
-You don't accidentally `defer free` the original pointer.
-
-> **Note for hook implementors.**\
-> In full matryoshka with Pool, this pattern appears only inside `on_get`.\
-> User code calls `pool_get` — never `new` directly.\
-> `on_get` allocates (when `m^==nil`), sets id, and sets `m^`; the pool returns it to the caller.\
-> Outside of hooks, this is not a user-code pattern.
+Builder prevents the mistakes:
+- You don't think about wrapping.
+- You don't forget to set id.
+- You don't accidentally `defer free` the original pointer.
 
 ### Standalone use
 
@@ -212,18 +206,12 @@ You don't accidentally `defer free` the original pointer.
 - Builder does not need a mailbox.
 - Any code that creates and destroys polymorphic items can use Builder directly.
 
-- Matryoshka does not need Builder either.
-- Builder, Master — everything described from here on — is your code.
-- Matryoshka gives you PolyNode, Mailbox, Pool.
-The rest is friendly advice.
+Matryoshka does not need Builder either.
+Builder — everything described from here on — is your code.
 
 Not forced. Not required.
 
 Use it, change it, or write your own.
-
-One exception: Pool requires hooks (PoolHooks).
-
-But even there, the simplest Builder — just ctor and dtor called from on_get/on_put — is enough.
 
 ---
 
@@ -231,7 +219,7 @@ But even there, the simplest Builder — just ctor and dtor called from on_get/o
 
 ### Produce
 
-Allocate items.\
+Allocate items.
 Push to intrusive list:
 
 <!-- snippet: examples/layer1/produce_consume.odin:32-55 -->
@@ -340,8 +328,8 @@ With `^MayItem`, `m^ = nil` is the rule:
 - API leaves it on failure → "I didn't take it, still yours."
 - You check it to know if you need to free it.
 
-This makes `defer pool_put(&p, &m)` safe.\
-`pool_put` sees `m^ == nil` and does nothing.\
+This makes deferred cleanup safe.
+A cleanup function sees `m^ == nil` and skips the free.
 With `^^PolyNode`, you'd have to track that by hand.
 
 **Simpler view:**
@@ -352,7 +340,7 @@ m^ == nil     → nothing inside    → you don't own it
 m^ != nil     → item inside       → you own it
 ```
 
-`^^PolyNode` only has two levels.\
+`^^PolyNode` only has two levels.
 You lose the difference between "I gave it away" and "I never had one."
 
 **The Result:** `Maybe` carries the ownership bit for free. And `m^.?` is the safe way to read it.
@@ -374,7 +362,7 @@ It puts the rules into the type:
 ptr, ok := m^.?
 ```
 
-`ok` is `false` when the inner value is absent.\
+`ok` is `false` when the inner value is absent.
 If `m` itself is nil, `m^` panics before `.?` is reached — that is a programming error.
 
 The single-value form is a trap:
@@ -429,7 +417,7 @@ m.ptr   = nil
 m.valid = false
 ```
 
-You'll forget. Or you'll read `m.ptr` while `m.valid` is false.\
+You'll forget. Or you'll read `m.ptr` while `m.valid` is false.
 `Maybe` and the `.?` operator stop you from doing that.
 
 **Summary:**

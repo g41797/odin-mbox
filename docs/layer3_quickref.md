@@ -47,7 +47,7 @@ It needs policy.
 | `pool_get` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
 | `pool_get_wait` | `Pool_Get_Result` | `.Ok` and `m^` is non-nil |
 | `pool_put` | nothing | `m^` is `nil` after the call — pool took it |
-| `pool_close` | `(list.List, ^PoolHooks)` | always succeeds — drain the returned list |
+| `pool_close` | `(list.List, ^PoolHooks)` | always succeeds — returned list is yours |
 
 For `pool_put`: if `m^` is still non-nil after the call, the pool is closed.
 You own the item.
@@ -207,7 +207,7 @@ nodes, h := pool_close(p)
 - Returns `^PoolHooks` — the pointer passed to `pool_init`.
 - Pool zeros its internal hooks pointer on close.
 - Post-close `pool_get`/`pool_put` return `.Closed` or no-op.
-- Pool does not call `on_put` during close. User drains manually.
+- Pool does not call `on_put` during close. The returned list is yours — handle each item as your shutdown strategy requires.
 - Calling `pool_close` on a pool created with `pool_new` but never passed to `pool_init` is safe — no hooks are registered so nothing is called. The pool handle is zeroed.
 
 ### get — acquire ownership

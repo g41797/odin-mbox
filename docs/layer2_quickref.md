@@ -30,7 +30,7 @@ You
 From here on, you think in Masters, not threads.
 
 Master
-- owns the pools and mailboxes that belong to its domain.
+- owns the mailboxes that belong to its domain.
 - lives on the heap.
 - is the unit of work in matryoshka.
 
@@ -121,7 +121,7 @@ Result:
 On non-Ok, the item is still yours.
 Dispose or retry.
 
-Note: `mbox_send` returns `.Invalid` on `id == 0` — the caller can recover and dispose the item. `pool_put` panics on `id == 0` — a zero id in a pool item is always a programming error and must not be papered over. This asymmetry is intentional.
+Note: `mbox_send` returns `.Invalid` on `id == 0` — the caller can recover and dispose the item.
 
 ---
 
@@ -166,12 +166,12 @@ mbox_interrupt :: proc(mb: Mailbox) -> IntrResult
 ```
 
 Sets the interrupted flag on the mailbox.
-Any get call that sees the flag clears it and returns `.Interrupted`.\
-`mbox_wait_receive` — wakes the blocked receiver, returns `.Interrupted`.\
+Any get call that sees the flag clears it and returns `.Interrupted`.
+`mbox_wait_receive` — wakes the blocked receiver, returns `.Interrupted`.
 `try_receive_batch` — returns empty list with `.Interrupted`.
 
-The interrupted flag is **self-clearing**.\
-The mailbox clears it on the first get call that sees it.\
+The interrupted flag is **self-clearing**.
+The mailbox clears it on the first get call that sees it.
 The next get call proceeds normally.
 
 | Result | Meaning |
@@ -202,11 +202,11 @@ mbox_close :: proc(mb: Mailbox) -> list.List
 - Returns all items still in the queue as a `list.List`.
 - Returns an empty list if already closed — idempotent.
 
-**Caller must drain the returned list.**
+**The returned list is yours. Walk it and handle each item — free, return to pool, or whatever your shutdown strategy requires.**
 
 ---
 
-## try_receive_batch — non-blocking batch drain
+## try_receive_batch — non-blocking batch receive
 
 ```odin
 try_receive_batch :: proc(mb: Mailbox) -> (list.List, RecvResult)
@@ -214,13 +214,13 @@ try_receive_batch :: proc(mb: Mailbox) -> (list.List, RecvResult)
 
 | Result | `list` | Meaning |
 |--------|--------|---------|
-| `.Ok` | items or empty | drained normally |
-| `.Interrupted` | empty | flag was set — cleared now. Call again to drain items. |
+| `.Ok` | items or empty | items are yours |
+| `.Interrupted` | empty | flag was set — cleared now. Call again to receive items. |
 | `.Closed` | empty | mailbox is closed |
 | `.Invalid` | empty | nil handle |
 
 - Non-blocking — never waits.
-- On `.Interrupted`: items in the queue are not drained. Call again to drain them.
+- On `.Interrupted`: items in the queue are not returned. Call again to receive them.
 
 Mailbox operations like `mbox_interrupt` and `try_receive_batch` are thread-safe and can be called from any thread to interact with the mailbox.
 - Caller owns all items in the returned list.
@@ -230,7 +230,7 @@ Mailbox operations like `mbox_interrupt` and `try_receive_batch` are thread-safe
 - `list.List` is a chain of `^list.Node` — intrusive links, not `^MayItem`.
 - Each node is a `PolyNode`.
 -`PolyNode` embeds `list.Node` via `using` at offset 0.
-- Wrap each item in `Maybe` at the processing boundary.
+- Wrap each item in `MayItem` at the processing boundary.
 
 ---
 

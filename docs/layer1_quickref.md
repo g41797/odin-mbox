@@ -106,9 +106,9 @@ m: MayItem
 
 | Event | `m^` after return |
 |-------|------------------|
-| success (send, put) | `nil` — ownership transferred |
-| success (get, receive) | `non-nil` — you own it now |
-| failure | unchanged — you still own it |
+| success (you gave it) | `nil` — you no longer hold it |
+| success (you received it) | `non-nil` — you hold it now |
+| failure | unchanged — you still hold it |
 
 **Honest notes:**
 - `Maybe` is a convention, not a guarantee.

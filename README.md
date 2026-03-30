@@ -311,7 +311,7 @@ Threads are hard. Matryoshka does not change that. It tries to make the bumping 
 
 Not serious. But not random either.
 
-- "*?*M" — opened my eyes. Predecessor of `Maybe(^PolyNode)`.
+- "*?*M" — opened my eyes. Predecessor of `^Maybe(^PolyNode)`.
 - [mailbox](https://github.com/g41797/mailbox) — this project started as a port of mailbox to Odin.
 - [tofu](https://github.com/g41797/tofu) — where these ideas began.
 

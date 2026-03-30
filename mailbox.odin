@@ -13,12 +13,8 @@ import "core:time"
 Mailbox :: ^PolyNode
 ////////////////////
 
-//////////////////////
-MAILBOX_ID: int : -1
-//////////////////////
 
-
-@(private = "file")
+@(private)
 _Mbox :: struct {
 	using poly:  PolyNode,
 	alctr:       mem.Allocator,
@@ -51,6 +47,12 @@ SendResult :: enum {
 
 mbox_send :: proc(mb: Mailbox, m: ^MayItem) -> SendResult {
 
+	mbx_Ptr := _unwrap(mb)
+
+	if mbx_Ptr^.id != MAILBOX_ID {
+		panic("non-mailbox is used for mailbox operations")
+	}
+
 	if m == nil || m^ == nil {
 		return .Invalid
 	}
@@ -65,11 +67,6 @@ mbox_send :: proc(mb: Mailbox, m: ^MayItem) -> SendResult {
 		return .Invalid
 	}
 
-	mbx_Ptr := _unwrap(mb)
-
-	if mbx_Ptr^.id != MAILBOX_ID {
-		panic("non-mailbox is used for mailbox operations")
-	}
 
 	sync.mutex_lock(&mbx_Ptr^.mutex)
 	defer sync.mutex_unlock(&mbx_Ptr^.mutex)
@@ -77,6 +74,12 @@ mbox_send :: proc(mb: Mailbox, m: ^MayItem) -> SendResult {
 
 	if (mbx_Ptr^.closed) {
 		return .Closed
+	}
+
+	when ODIN_DEBUG {
+		if polynode_is_linked(ptr) {
+			panic("mbox_send: node is still linked")
+		}
 	}
 
 	list.push_back(&mbx_Ptr^.list, &ptr^.node)
@@ -102,6 +105,13 @@ RecvResult :: enum {
 
 mbox_wait_receive :: proc(mb: Mailbox, m: ^MayItem, timeout: time.Duration = -1) -> RecvResult {
 
+
+	mbx_Ptr := _unwrap(mb)
+
+	if mbx_Ptr^.id != MAILBOX_ID {
+		panic("non-mailbox is used for mailbox operations")
+	}
+
 	infinite := timeout < 0
 	start := time.now()
 
@@ -112,13 +122,6 @@ mbox_wait_receive :: proc(mb: Mailbox, m: ^MayItem, timeout: time.Duration = -1)
 	if m^ != nil {
 		return .Already_In_Use
 	}
-
-	mbx_Ptr := _unwrap(mb)
-
-	if mbx_Ptr^.id != MAILBOX_ID {
-		panic("non-mailbox is used for mailbox operations")
-	}
-
 
 	sync.mutex_lock(&mbx_Ptr^.mutex)
 	defer sync.mutex_unlock(&mbx_Ptr^.mutex)
@@ -149,6 +152,15 @@ mbox_wait_receive :: proc(mb: Mailbox, m: ^MayItem, timeout: time.Duration = -1)
 
 	}
 
+	// Priority: check for data even if closed or interrupted.
+	// This ensures no data is lost if it arrived just before or during signal.
+
+	if mbx_Ptr^.len > 0 {
+		m^ = _pop(mbx_Ptr)
+		sync.cond_signal(&mbx_Ptr^.cond)
+		return .Ok
+	}
+
 	if mbx_Ptr^.closed {
 		return .Closed
 	}
@@ -158,14 +170,11 @@ mbox_wait_receive :: proc(mb: Mailbox, m: ^MayItem, timeout: time.Duration = -1)
 		return .Interrupted
 	}
 
-	m^ = _pop(mbx_Ptr)
-	sync.cond_signal(&mbx_Ptr^.cond)
-	return .Ok
+	return .Timeout // Should not be reached if len > 0 was checked properly
 }
 
 try_receive_batch :: proc(mb: Mailbox) -> (list.List, RecvResult) {
 
-	result := list.List{}
 
 	mbx_Ptr := _unwrap(mb)
 
@@ -173,9 +182,19 @@ try_receive_batch :: proc(mb: Mailbox) -> (list.List, RecvResult) {
 		panic("non-mailbox is used for mailbox operations")
 	}
 
+	result := list.List{}
 
 	sync.mutex_lock(&mbx_Ptr^.mutex)
 	defer sync.mutex_unlock(&mbx_Ptr^.mutex)
+
+	// Return data if available, even if closed or interrupted.
+	if mbx_Ptr^.len > 0 {
+		result = mbx_Ptr^.list
+		mbx_Ptr^.list = list.List{}
+		mbx_Ptr^.len = 0
+		sync.cond_signal(&mbx_Ptr^.cond)
+		return result, .Ok
+	}
 
 	if mbx_Ptr^.closed {
 		return result, .Closed
@@ -186,10 +205,6 @@ try_receive_batch :: proc(mb: Mailbox) -> (list.List, RecvResult) {
 		return result, .Interrupted
 	}
 
-	result = mbx_Ptr^.list
-	mbx_Ptr^.list = list.List{}
-	mbx_Ptr^.len = 0
-	sync.cond_signal(&mbx_Ptr^.cond)
 	return result, .Ok
 
 }
@@ -230,7 +245,6 @@ mbox_interrupt :: proc(mb: Mailbox) -> IntrResult {
 
 mbox_close :: proc(mb: Mailbox) -> list.List {
 
-	result := list.List{}
 
 	mbx_Ptr := _unwrap(mb)
 
@@ -238,6 +252,7 @@ mbox_close :: proc(mb: Mailbox) -> list.List {
 		panic("non-mailbox is used for mailbox operations")
 	}
 
+	result := list.List{}
 
 	sync.mutex_lock(&mbx_Ptr^.mutex)
 	defer sync.mutex_unlock(&mbx_Ptr^.mutex)
@@ -266,5 +281,20 @@ _unwrap :: proc(m: Mailbox) -> ^_Mbox {
 _pop :: proc(m: ^_Mbox) -> ^PolyNode {
 	raw := list.pop_front(&m^.list)
 	m^.len -= 1
-	return cast(^PolyNode)raw
+	result := cast(^PolyNode)raw
+	polynode_reset(result)
+	return result
 }
+
+@(private)
+_mbox_dispose :: proc(m: ^MayItem) {
+	ptr, _ := m^.?
+	mb := cast(^_Mbox)ptr
+	if !mb.closed {
+		panic("matryoshka_dispose: mailbox must be closed first")
+	}
+	alloc := mb.alctr
+	free(mb, alloc)
+	m^ = nil
+}
+

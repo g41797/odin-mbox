@@ -42,3 +42,30 @@ PolyNode :: struct {
 	using node: list.Node, // intrusive link — .prev, .next
 	id:         int, // type discriminator, must be != 0
 }
+
+//////////////////////
+// System IDs
+//////////////////////
+MAILBOX_ID: int : -1
+POOL_ID:    int : -2
+
+// polynode_reset clears the intrusive link pointers of n.
+// Safe to call with n == nil (no-op).
+//
+// Infrastructure calls this on every single-item return (mbox_wait_receive, pool_get,
+// pool_get_wait). Callers must call it themselves after list.pop_front on batch returns
+// (mbox_close, try_receive_batch, pool_close) before passing to mbox_send or pool_put.
+polynode_reset :: proc(n: ^PolyNode) {
+	if n == nil {return}
+	n.prev = nil
+	n.next = nil
+}
+
+// polynode_is_linked reports whether n is currently linked into a list.
+// Returns false if n == nil.
+// Used internally as a debug assertion before every insert into infrastructure.
+polynode_is_linked :: proc(n: ^PolyNode) -> bool {
+	if n == nil {return false}
+	return n.prev != nil || n.next != nil
+}
+

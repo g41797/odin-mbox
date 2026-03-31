@@ -1,5 +1,3 @@
----
-
 ## The problem
 
 Multiple threads touching the same data at the same time — dangerous.

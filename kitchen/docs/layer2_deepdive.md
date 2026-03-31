@@ -1,8 +1,8 @@
-# Layer 2 — Mailbox + Master — Deep Dive
+# Doll 2 — Mailbox — Deep Dive
 
 > See [Quick Reference](layer2_quickref.md) for API signatures and contracts.
 >
-> **Prerequisite:** [Layer 1](layer1_quickref.md) (PolyNode, Maybe, Builder).
+> **Prerequisite:** [Doll 1](layer1_quickref.md) (PolyNode, MayItem, Builder).
 
 ---
 
@@ -390,7 +390,7 @@ for {
 
 ---
 
-## What you can build with Layer 1 + 2
+## What you can build with Doll 1 + 2
 
 - Multi-threaded pipelines — read → process → write across Masters.
 - Request-response pairs — Master A asks, Master B answers.

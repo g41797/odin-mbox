@@ -1,8 +1,8 @@
-# Layer 3 — Pool + Recycler — Quick Reference
+# Doll 3 — Pool — Quick Reference
 
 > See [Deep Dive](layer3_deepdive.md) for hook examples, patterns, and extended explanations.
 >
-> **Prerequisite:** [Layer 1](layer1_quickref.md) + [Layer 2](layer2_quickref.md).
+> **Prerequisite:** [Doll 1](layer1_quickref.md) + [Doll 2](layer2_quickref.md).
 
 ---
 
@@ -60,11 +60,11 @@ See the result table below.
 
 ## Recycler — your hooks for the pool
 
-Builder from Layer 1 creates and destroys by id.
+Builder from Doll 1 creates and destroys by id.
 Recycler extends that idea.
 
-In standalone code (Layer 1–2), Builder creates and destroys directly.\
-In pooled code (Layer 3+), `on_get` and `on_put` take over that role.\
+In standalone code (Doll 1–2), Builder creates and destroys directly.\
+In pooled code (Doll 3+), `on_get` and `on_put` take over that role.\
 Recycler replaces Builder when you have a pool.
 
 Recycler adds:
@@ -75,8 +75,8 @@ Recycler adds:
 - **Setup** — `ids` declares which item types this pool handles.
 
 ```
-Builder (Layer 1):   ctor + dtor + alloc
-Recycler (Layer 3):  on_get + on_put + ctx + ids
+Builder (Doll 1):   ctor + dtor + alloc
+Recycler (Doll 3):  on_get + on_put + ctx + ids
 ```
 
 ### PoolHooks
@@ -347,7 +347,7 @@ If the panic occurs on node N in a chain of M nodes, nodes N+1 through M are nev
 
 ---
 
-## What you learned (Layer 3)
+## What you learned (Doll 3)
 
 - Reuse is not free — it needs policy.
 - Pool is strong. Check every result.

@@ -1,4 +1,4 @@
-# Layer 1 — PolyNode + Maybe + Builder — Deep Dive
+# Doll 1 — PolyNode + MayItem — Deep Dive
 
 > See [Quick Reference](layer1_quickref.md) for API signatures and contracts.
 
@@ -287,7 +287,7 @@ for {
 }
 ```
 
-### What you can build with Layer 1
+### What you can build with Doll 1
 
 - Intrusive lists in one thread — no extra allocations.
 - Simple game entity systems — entities live in one list at a time.

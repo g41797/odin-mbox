@@ -61,5 +61,15 @@ find . -name "index.html" ! -path "./index.html" | while read -r f; do
     sed -i "s|src=\"/\([^/]\)|src=\"${prefix}\1|g" "$f"
 done
 
+# Fix blank root package nav link — odin-doc emits an empty <a> when the
+# collection name matches the root package name. Fill in the package name.
+find . -name "index.html" -exec sed -i \
+    's|<a \([^>]*\)href="\([^"]*\)matryoshka/"\([^>]*\)></a>|<a \1href="\2matryoshka/"\3>matryoshka</a>|g' {} +
+
+# pkg-data.js contains absolute paths used by search.js for navigation
+# (e.g. "path": "/matryoshka/"). sed does not process .js files, so those
+# paths point to the server root instead of /apidocs/. Prefix them here.
+sed -i 's|"path": "/|"path": "/apidocs/|g' "$APIDOCS_DIR/pkg-data.js"
+
 cd "$ROOT_DIR"
 rm -f matryoshka.odin-doc

@@ -55,3 +55,76 @@ Run under workspace
 To create layerN+1 when the time comes:
 
     cd dolls && ./create_layer.sh
+
+
+---
+Scripts — purpose and how to run from project root
+---
+
+All commands below are run from the matryoshka repository root.
+
+
+Build and Test
+--------------
+
+kitchen/build_and_test.sh
+  Full CI check. Builds all layers (. examples/layer1-4) at every optimization
+  level (none minimal size speed aggressive), runs all tests, then does a doc
+  smoke test for each package.
+
+  Run:  bash kitchen/build_and_test.sh
+
+kitchen/build_and_test_debug.sh
+  Same as build_and_test.sh but only the -o:none -debug pass.
+  Faster than the full check; good for catching compiler errors quickly.
+
+  Run:  bash kitchen/build_and_test_debug.sh
+
+kitchen/build_and_test_quick.sh
+  Debug pass only (-o:none -debug), skips the doc smoke test.
+  Fastest iteration check — use while actively editing code.
+
+  Run:  bash kitchen/build_and_test_quick.sh
+
+
+Documentation tools (kitchen/tools/)
+-------------------------------------
+
+kitchen/tools/get_odin_doc.sh
+  One-time setup. Clones pkg.odin-lang.org at a pinned commit, builds the
+  odin-doc binary, installs it to kitchen/tools/odin-doc, then removes the
+  clone. Run once before using any of the doc generation scripts.
+
+  Requires: odin compiler in PATH, git
+  Run:  bash kitchen/tools/get_odin_doc.sh
+
+kitchen/tools/generate_apidocs.sh
+  Generates odin-doc HTML for all packages (root + examples/layer1-4) into
+  kitchen/docs/apidocs/. Also creates the kitchen/docs/odin-itc symlink so
+  odin-doc asset paths resolve correctly when served from site root.
+
+  Requires: kitchen/tools/odin-doc binary (see get_odin_doc.sh)
+  Run:  bash kitchen/tools/generate_apidocs.sh
+
+kitchen/tools/preview_apidocs.sh
+  Generates apidocs HTML (calls generate_apidocs.sh) then serves them
+  standalone at http://localhost:8000 using Python's http.server.
+  Use this to inspect just the API reference without the full MkDocs site.
+
+  Requires: kitchen/tools/odin-doc binary, python3
+  Run:  bash kitchen/tools/preview_apidocs.sh
+
+kitchen/tools/preview_site.sh
+  Generates apidocs HTML then starts mkdocs serve with live reload.
+  Full site (narrative docs + API reference) at http://localhost:8000.
+  Press Ctrl+C to stop.
+
+  Requires: kitchen/tools/odin-doc binary, mkdocs-material (pip install mkdocs-material)
+  Run:  bash kitchen/tools/preview_site.sh
+
+kitchen/tools/build_site.sh
+  Generates apidocs HTML then runs mkdocs build to produce a complete static
+  site in kitchen/output/. Use this for deployment (GitHub Pages, etc.).
+
+  Requires: kitchen/tools/odin-doc binary, mkdocs-material
+  Run:  bash kitchen/tools/build_site.sh

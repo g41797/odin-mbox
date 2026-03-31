@@ -1,9 +1,6 @@
-# Layer 4 — Meta — Infrastructure as Items — Quick Reference
+# Doll 4 — Infrastructure as Items — Quick Reference
 
-> See previous layers for basics.\
-> Layer 1 — ownership.\
-> Layer 2 — movement.\
-> Layer 3 — reuse.
+> **Prerequisite:** [Doll 1](layer1_quickref.md) — ownership. [Doll 2](layer2_quickref.md) — movement. [Doll 3](layer3_quickref.md) — reuse.
 
 ---
 
@@ -206,7 +203,7 @@ If the pool is open, it will treat them as a "foreign" id and panic.
 
 ---
 
-## What changed from Layer 3
+## What changed from Doll 3
 
 * Before: only data is item
 * Now: infrastructure is also item
@@ -219,7 +216,7 @@ What did not change:
 
 ---
 
-## What you learned (Layer 4)
+## What you learned (Doll 4)
 
 * One model is enough
 * Everything can move

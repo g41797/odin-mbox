@@ -35,16 +35,16 @@ theme:
 
 nav:
   - Home: addendums/readme.md
-  - Layer 1 — PolyNode + MayItem:
+  - Doll 1 — PolyNode + MayItem:
       - Quick Reference: layer1_quickref.md
       - Deep Dive: layer1_deepdive.md
-  - Layer 2 — Mailbox:
+  - Doll 2 — Mailbox:
       - Quick Reference: layer2_quickref.md
       - Deep Dive: layer2_deepdive.md
-  - Layer 3 — Pool:
+  - Doll 3 — Pool:
       - Quick Reference: layer3_quickref.md
       - Deep Dive: layer3_deepdive.md
-  - Layer 4 — Infrastructure as Items:
+  - Doll 4 — Infrastructure as Items:
       - Quick Reference: layer4_quickref.md
       - Deep Dive: layer4_deepdive.md
   - Addendums:

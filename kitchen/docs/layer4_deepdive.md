@@ -1,8 +1,8 @@
-# Layer 4 — Meta — Infrastructure as Items — Deep Dive
+# Doll 4 — Infrastructure as Items — Deep Dive
 
 > See [Quick Reference](layer4_quickref.md) for API shape and rules.\
 >\
-> **Prerequisite:** Layer 1 + Layer 2 + Layer 3.
+> **Prerequisite:** [Doll 1](layer1_quickref.md) + [Doll 2](layer2_quickref.md) + [Doll 3](layer3_quickref.md).
 
 ---
 
@@ -380,7 +380,7 @@ No hidden dependency.
 
 ---
 
-## What changed from Layer 3
+## What changed from Doll 3
 
 Before:
 
@@ -404,7 +404,7 @@ Now:
 
 ---
 
-## What you learned (Layer 4)
+## What you learned (Doll 4)
 
 * One model scales
 * Infrastructure can move

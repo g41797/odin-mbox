@@ -1,8 +1,8 @@
-# Layer 2 — Mailbox + Master — Quick Reference
+# Doll 2 — Mailbox — Quick Reference
 
 > See [Deep Dive](layer2_deepdive.md) for patterns, diagrams, and code examples.
 >
-> **Prerequisite:** [Layer 1](layer1_quickref.md) (PolyNode, Maybe, Builder).
+> **Prerequisite:** [Doll 1](layer1_quickref.md) (PolyNode, MayItem, Builder).
 
 ---
 
@@ -243,7 +243,7 @@ Mailbox operations like `mbox_interrupt` and `try_receive_batch` are thread-safe
 - It is the only participant that knows concrete types.
 
 Master holds:
-- Builder (from Layer 1).
+- Builder (from Doll 1).
 - At least one Mailbox.
 - Any other state it needs.
 
@@ -272,7 +272,7 @@ That is how other Masters talk to it.
 
 ---
 
-## What you learned (Layer 2)
+## What you learned (Doll 2)
 
 - Absence is also a state — timeout, interrupt.
 - Not every signal carries data.

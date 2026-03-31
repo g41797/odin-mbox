@@ -1,4 +1,4 @@
-# Layer 1 — PolyNode + Maybe + Builder — Quick Reference
+# Doll 1 — PolyNode + MayItem — Quick Reference
 
 > See [Deep Dive](layer1_deepdive.md) for diagrams, examples, and extended explanations.
 
@@ -149,7 +149,7 @@ make_builder :: proc(alloc: mem.Allocator) -> Builder {
 
 ---
 
-## What you learned (Layer 1)
+## What you learned (Doll 1)
 
 - Item has one owner.
 - Transfer is explicit.

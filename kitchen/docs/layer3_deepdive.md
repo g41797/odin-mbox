@@ -1,8 +1,8 @@
-# Layer 3 — Pool + Recycler — Deep Dive
+# Doll 3 — Pool — Deep Dive
 
 > See [Quick Reference](layer3_quickref.md) for API signatures and contracts.\
 >\
-> **Prerequisite:** [Layer 1](layer1_quickref.md) + [Layer 2](layer2_quickref.md).
+> **Prerequisite:** [Doll 1](layer1_quickref.md) + [Doll 2](layer2_quickref.md).
 
 ---
 
@@ -14,7 +14,7 @@ All pool operations (`pool_init`, `pool_get`, `pool_get_wait`, `pool_put`, `pool
 
 ## Recycler — from Builder to hooks
 
-You already have Builder from Layer 1.\
+You already have Builder from Doll 1.\
 Builder creates and destroys by id.
 
 Recycler extends that idea.\
@@ -119,12 +119,12 @@ pool_init(p, &hooks)
 
 ---
 
-## Master with Pool — extending Layer 2's Master
+## Master with Pool — extending Doll 2's Master
 
-In Layer 2, Master held Builder and mailbox references.\
+In Doll 2, Master held Builder and mailbox references.\
 Now Master holds Pool and Recycler (PoolHooks) too.
 
-Builder from Layer 1 becomes the basis for your hooks.\
+Builder from Doll 1 becomes the basis for your hooks.\
 The same creation and destruction logic lives in `on_get` and `on_put`.
 
 ```odin
@@ -236,19 +236,19 @@ if pool_get(master.pool, int(FlowId.Chunk), .Available_Only, &m) != .Ok {
 
 ## Patterns
 
-### Builder to Pool — simplest upgrade from Layer 2
+### Builder to Pool — simplest upgrade from Doll 2
 
 Replace Builder.ctor/dtor calls with pool_get/pool_put.\
 Same patterns, now with recycling.
 
-Layer 2 sender:\
+Doll 2 sender:\
 ```odin
 m := ctor(&b, int(FlowId.Chunk))
 // fill
 mbox_send(mb, &m)
 ```
 
-Layer 3 sender:\
+Doll 3 sender:\
 ```odin
 m: MayItem
 defer pool_put(p, &m)  // [itc: defer-put-early]

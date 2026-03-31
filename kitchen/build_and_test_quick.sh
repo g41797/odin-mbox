@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 set -euo pipefail
 
 GREEN=$'\033[0;32m'
@@ -58,6 +59,7 @@ for opt in "${OPTS[@]}"; do
 
     echo "${GREEN}  pass: ${opt}${NC}"
 done
+
 
 echo
 echo "${GREEN}ALL CHECKS PASSED${NC}"

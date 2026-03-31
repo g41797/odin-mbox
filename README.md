@@ -1,4 +1,4 @@
-![](_logo/DancingMatryoshka.png)
+![](kitchen/_logo/DancingMatryoshka.png)
 
 # Matryoshka — Layered Inter-Thread Communication
 

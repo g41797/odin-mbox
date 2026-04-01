@@ -4,8 +4,8 @@ import list "core:container/intrusive/list"
 import "core:fmt"
 import "core:mem"
 
-// drain_list pops and frees all remaining items in the list.
-drain_list :: proc(l: ^list.List, alloc: mem.Allocator) {
+// consume_list pops and frees all remaining items in the list.
+consume_list :: proc(l: ^list.List, alloc: mem.Allocator) {
 	for {
 		raw := list.pop_front(l)
 		if raw == nil {
@@ -29,8 +29,8 @@ drain_list :: proc(l: ^list.List, alloc: mem.Allocator) {
 example_produce_consume :: proc(alloc: mem.Allocator) -> bool {
 	l: list.List
 
-	// Drain on any exit path — no-op if list is already empty.
-	defer drain_list(&l, alloc)
+	// Consume on any exit path — no-op if list is already empty.
+	defer consume_list(&l, alloc)
 
 	// --- Produce: N pairs of (Event, Sensor) ---
 	N :: 3

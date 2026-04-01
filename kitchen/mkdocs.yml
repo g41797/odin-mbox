@@ -35,6 +35,7 @@ theme:
 
 nav:
   - Home: addendums/readme.md
+  - The Problem: problem2solve.md
   - Doll 1 — PolyNode + MayItem:
       - Quick Reference: layer1_quickref.md
       - Deep Dive: layer1_deepdive.md
@@ -48,12 +49,14 @@ nav:
       - Quick Reference: layer4_quickref.md
       - Deep Dive: layer4_deepdive.md
   - Addendums:
-      - Advices: advices.md
-      - Advice Catalog: advice_catalog.md
-      - Hard Rules: addendums/hard-rules.md
-      - Critical Issues: addendums/critical-issues.md
-      - C++ Decision: addendums/cpp-decision.md
-      - Doctor Ordered: addendums/doctor-ordered.md
+      - Forgotten Doll: addendums/forgotten_doll.md
+      - Dialogs: addendums/dialogs.md
+  #     - Advices: advices.md
+  #     - Advice Catalog: advice_catalog.md
+  #     - Hard Rules: addendums/hard-rules.md
+  #     - Critical Issues: addendums/critical-issues.md
+  #     - C++ Decision: addendums/cpp-decision.md
+  #     - Doctor Ordered: addendums/doctor-ordered.md
   - API Reference: api_reference.md
 
 plugins:

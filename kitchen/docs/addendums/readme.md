@@ -9,6 +9,15 @@ Intrusive data structures.
 
 ---
 
+## Why this exists
+
+Multiple threads. Same data. Two hands on the same thing — who frees it?
+The answer: one hand at a time. Move, don't share.
+
+→ [The full explanation](../problem2solve.md)
+
+---
+
 ## What this library does
 
 You pass items between threads.

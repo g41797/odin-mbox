@@ -71,5 +71,22 @@ find . -name "index.html" -exec sed -i \
 # paths point to the server root instead of /apidocs/. Prefix them here.
 sed -i 's|"path": "/|"path": "/apidocs/|g' "$APIDOCS_DIR/pkg-data.js"
 
+# Copy shared assets into every package subdirectory so the browser finds
+# them regardless of which relative path a cached HTML page requests them from.
+find . -mindepth 2 -name "index.html" | while read -r f; do
+    dir=$(dirname "$f")
+    cp favicon.svg "$dir/favicon.svg"
+    cp style.css   "$dir/style.css"
+done
+
+# Cache-busting: append ?v=<timestamp> to all shared asset references so
+# browsers never serve stale files after apidocs regeneration.
+VER=$(date +%Y%m%d%H%M%S)
+find . -name "index.html" -exec sed -i \
+    -e "s|favicon\.svg\"|favicon.svg?v=${VER}\"|g" \
+    -e "s|style\.css\"|style.css?v=${VER}\"|g" \
+    -e "s|pkg-data\.js\"|pkg-data.js?v=${VER}\"|g" \
+    -e "s|search\.js\"|search.js?v=${VER}\"|g" {} +
+
 cd "$ROOT_DIR"
 rm -f matryoshka.odin-doc

@@ -9,22 +9,13 @@ Stop when you have enough.
 
 ---
 
-## What changes in your head
+## The problem this solves
 
-You write multi-threaded code.
-Data moves between threads.
+Multiple threads. Same data. Two hands on the same thing.
+The answer isn't locks — that's two hands with coordination.
+**One hand at a time. Move. Don't share.**
 
-Before Matryoshka you think:
-- who locked what
-- who waits
-- who frees
-
-With Matryoshka you think:
-- where does this go next
-- who owns it right now
-- when do I return it
-
-That is the only real change.
+→ [Why this exists](kitchen/docs/problem2solve.md)
 
 ---
 

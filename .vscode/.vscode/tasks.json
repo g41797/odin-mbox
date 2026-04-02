@@ -23,9 +23,9 @@
             "type": "pickString",
             "description": "Select test package",
             "options": [
-                { "label": "tests/layer1/", "value": "tests/layer1" },
-                { "label": "tests/layer2/", "value": "tests/layer2" },
-                { "label": "tests/layer3/", "value": "tests/layer3" }
+                { "label": "tests/block1/", "value": "tests/block1" },
+                { "label": "tests/block2/", "value": "tests/block2" },
+                { "label": "tests/block3/", "value": "tests/block3" }
             ]
         }
     ]

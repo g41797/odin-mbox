@@ -41,7 +41,7 @@ When editing documents, follow these rules:
 - API contracts go in tables or bullet lists.
 
 **Source files**
-- Source files know nothing about layers — no layer references in comments or docs.
+- Source files know nothing about blocks — no layer references in comments or docs.
 - No forward references to terms not yet defined in the document.
 - Always use the two-value form to read the inner value of a `Maybe`: `ptr, ok := m.?`
 - Never use the single-value form `ptr := m.?` — it panics if nil.
@@ -54,16 +54,16 @@ When editing documents, follow these rules:
 - Place a source tag immediately before each code fence:
   `<!-- snippet: <path>:<start_line>-<end_line> -->`
   Path is relative to `flat/`.
-  Example: `<!-- snippet: examples/layer1/builder.odin:7-14 -->`
+  Example: `<!-- snippet: examples/block1/builder.odin:7-14 -->`
 - When the source code changes, find all snippets referencing that file and update them.
   Search: `grep -r "snippet:.*<filename>" docs/`
 - A snippet may be shortened with `// ...` to skip irrelevant lines.
   The tag still points to the full range.
 
-**Cross-layer references**
-- A layer may reference earlier layers.
-- A layer must never reference later layers.
-- Within a layer, do not mention concepts defined later in the same layer.
+**Cross-block references**
+- A block may reference earlier blocks.
+- A block must never reference later blocks.
+- Within a block, do not mention concepts defined later in the same block.
 
 ---
 

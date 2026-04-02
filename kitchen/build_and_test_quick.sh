@@ -11,17 +11,17 @@ OPTS=(none)
 
 BUILDS=(
     .
-    examples/layer1
-    examples/layer2
-    examples/layer3
-    examples/layer4
+    examples/block1
+    examples/block2
+    examples/block3
+    examples/block4
 )
 
 TESTS=(
-    tests/layer1
-    tests/layer2
-    tests/layer3
-    tests/layer4
+    tests/block1
+    tests/block2
+    tests/block3
+    tests/block4
 )
 
 echo "${BLUE}Starting flat local CI (quick)...${NC}"

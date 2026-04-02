@@ -35,56 +35,56 @@ jobs:
             odin build . -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build examples/layer1
+      - name: Build examples/block1
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./examples/layer1/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin build ./examples/block1/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin build ./examples/layer1/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin build ./examples/block1/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build examples/layer2
+      - name: Build examples/block2
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./examples/layer2/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin build ./examples/block2/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin build ./examples/layer2/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin build ./examples/block2/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Build examples/layer3
+      - name: Build examples/block3
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin build ./examples/layer3/ -build-mode:lib -vet -strict-style -o:none -debug
+            odin build ./examples/block3/ -build-mode:lib -vet -strict-style -o:none -debug
           else
-            odin build ./examples/layer3/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
+            odin build ./examples/block3/ -build-mode:lib -vet -strict-style -o:${{ matrix.opt }}
           fi
 
-      - name: Test tests/layer1
+      - name: Test tests/block1
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/layer1/ -vet -strict-style -disallow-do -o:none -debug
+            odin test ./tests/block1/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin test ./tests/layer1/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+            odin test ./tests/block1/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi
 
-      - name: Test tests/layer2
+      - name: Test tests/block2
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/layer2/ -vet -strict-style -disallow-do -o:none -debug
+            odin test ./tests/block2/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin test ./tests/layer2/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+            odin test ./tests/block2/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi
 
-      - name: Test tests/layer3
+      - name: Test tests/block3
         shell: bash
         run: |
           if [ "${{ matrix.opt }}" = "none" ]; then
-            odin test ./tests/layer3/ -vet -strict-style -disallow-do -o:none -debug
+            odin test ./tests/block3/ -vet -strict-style -disallow-do -o:none -debug
           else
-            odin test ./tests/layer3/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
+            odin test ./tests/block3/ -vet -strict-style -disallow-do -o:${{ matrix.opt }}
           fi

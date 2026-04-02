@@ -30,7 +30,7 @@ When the default allocator may be changed, an explicit one should be used.
 Builder stores the allocator.
 All procs that allocate or free use the stored allocator.
 
-<!-- snippet: examples/layer1/builder.odin:7-14 -->
+<!-- snippet: examples/block1/builder.odin:7-14 -->
 ```odin
 Builder :: struct {
     alloc: mem.Allocator,
@@ -43,7 +43,7 @@ make_builder :: proc(alloc: mem.Allocator) -> Builder {
 
 Usage:
 
-<!-- snippet: examples/layer1/example_builder.odin:8-11 -->
+<!-- snippet: examples/block1/example_builder.odin:8-11 -->
 ```odin
 b := make_builder(alloc)
 m := ctor(&b, int(ItemId.Event))
@@ -66,7 +66,7 @@ Use `defer` for cleanup that must happen on all exit paths.
 When building a collection in a loop, set up a defer process remaining at the start.
 If an allocation fails mid-loop, the defer cleans up everything already added.
 
-<!-- snippet: examples/layer1/produce_consume.odin:32-33 -->
+<!-- snippet: examples/block1/produce_consume.odin:32-33 -->
 ```odin
 // Drain on any exit path — no-op if list is already empty.
 defer drain_list(&l, alloc)
@@ -74,7 +74,7 @@ defer drain_list(&l, alloc)
 
 The process remaining helper pops and frees all items by id:
 
-<!-- snippet: examples/layer1/produce_consume.odin:8-23 -->
+<!-- snippet: examples/block1/produce_consume.odin:8-23 -->
 ```odin
 drain_list :: proc(l: ^list.List, alloc: mem.Allocator) {
     for {

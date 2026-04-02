@@ -1,7 +1,7 @@
 site_name: matryoshka
 docs_dir: docs
 site_dir: output
-site_description: Layered inter-thread communication for Odin
+site_description: Building blocks for boring systems in Odin
 repo_url: https://github.com/g41797/matryoshka/
 repo_name: matryoshka on GitHub
 
@@ -37,17 +37,17 @@ nav:
   - Home: problem2solve.md
 # - Home: addendums/readme.md
   - Doll 1 — PolyNode + MayItem:
-      - Quick Reference: layer1_quickref.md
-      - Deep Dive: layer1_deepdive.md
+      - Quick Reference: block1_quickref.md
+      - Deep Dive: block1_deepdive.md
   - Doll 2 — Mailbox:
-      - Quick Reference: layer2_quickref.md
-      - Deep Dive: layer2_deepdive.md
+      - Quick Reference: block2_quickref.md
+      - Deep Dive: block2_deepdive.md
   - Doll 3 — Pool:
-      - Quick Reference: layer3_quickref.md
-      - Deep Dive: layer3_deepdive.md
+      - Quick Reference: block3_quickref.md
+      - Deep Dive: block3_deepdive.md
   - Doll 4 — Infrastructure as Items:
-      - Quick Reference: layer4_quickref.md
-      - Deep Dive: layer4_deepdive.md
+      - Quick Reference: block4_quickref.md
+      - Deep Dive: block4_deepdive.md
   - Addendums:
       - Forgotten Doll: addendums/forgotten_doll.md
   #     - Dialogs: addendums/dialogs.md

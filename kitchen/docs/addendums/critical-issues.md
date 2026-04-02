@@ -987,10 +987,10 @@ Next steps should be:
 ### Step 4 — Split layers (important for Matryoshka)
 
 ```
-Layer 1: intrusive queue (no threads)
-Layer 2: mailbox (blocking)
-Layer 3: pool integration
-Layer 4: protocol (ZYAMP)
+Block 1: intrusive queue (no threads)
+Block 2: mailbox (blocking)
+Block 3: pool integration
+Block 4: protocol (ZYAMP)
 ```
 
 ---

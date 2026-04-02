@@ -60,27 +60,27 @@ That is fine.
 
 Each layer has a **Quick Reference** (API signatures, contracts, tables) and a **Deep Dive** (diagrams, examples, patterns).
 
-### Layer 1 — PolyNode + Maybe + Builder
+### Block 1 — PolyNode + Maybe + Builder
 
-- [Quick Reference](layer1_quickref.md) — struct shapes, id/offset rules, Maybe contract, Builder signatures
-- [Deep Dive](layer1_deepdive.md) — intrusive explanation, produce/consume examples, addendums (Maybe vs ^^PolyNode)
+- [Quick Reference](block1_quickref.md) — struct shapes, id/offset rules, Maybe contract, Builder signatures
+- [Deep Dive](block1_deepdive.md) — intrusive explanation, produce/consume examples, addendums (Maybe vs ^^PolyNode)
 
-Concepts from Layer 1 form the fundamental building blocks for all subsequent layers of Matryoshka, providing essential item structure and ownership semantics.
+Concepts from Block 1 form the fundamental building blocks for all subsequent layers of Matryoshka, providing essential item structure and ownership semantics.
 
-### Layer 2 — Mailbox + Master
+### Block 2 — Mailbox + Master
 
-- [Quick Reference](layer2_quickref.md) — Mailbox API, result enums, Master shape
-- [Deep Dive](layer2_deepdive.md) — patterns (request-response, pipeline, fan-in, fan-out, shutdown)
+- [Quick Reference](block2_quickref.md) — Mailbox API, result enums, Master shape
+- [Deep Dive](block2_deepdive.md) — patterns (request-response, pipeline, fan-in, fan-out, shutdown)
 
-### Layer 3 — Pool + Recycler
+### Block 3 — Pool + Recycler
 
-- [Quick Reference](layer3_quickref.md) — Pool API, modes, results, PoolHooks contracts, ID rules
-- [Deep Dive](layer3_deepdive.md) — hook examples, backpressure, full lifecycle, Master with Pool
+- [Quick Reference](block3_quickref.md) — Pool API, modes, results, PoolHooks contracts, ID rules
+- [Deep Dive](block3_deepdive.md) — hook examples, backpressure, full lifecycle, Master with Pool
 
-### Layer 4 — Meta — Infrastructure as Items
+### Block 4 — Meta — Infrastructure as Items
 
-- [Quick Reference](layer4_quickref.md) — handle definitions, matryoshka_dispose signature, unified creation
-- [Deep Dive](layer4_deepdive.md) — dynamic topology, self-send patterns, teardown unification
+- [Quick Reference](block4_quickref.md) — handle definitions, matryoshka_dispose signature, unified creation
+- [Deep Dive](block4_deepdive.md) — dynamic topology, self-send patterns, teardown unification
 
 ---
 
@@ -100,9 +100,9 @@ Concepts from Layer 1 form the fundamental building blocks for all subsequent la
 ### You own
 
 - Id enum definition.
-- Builder (Layer 1). Your code, your rules.
-- Master (Layer 2). Your code, your logic.
-- All `PoolHooks` hook implementations (Layer 3). Your hooks, your policy.
+- Builder (Block 1). Your code, your rules.
+- Master (Block 2). Your code, your logic.
+- All `PoolHooks` hook implementations (Block 3). Your hooks, your policy.
 - Locking inside hooks — pool makes no constraints on hook internals.
 - Per-id count limits — expressed in `on_put`.
 - Byte-level limits — maintain a counter in `ctx`, dispose in `on_put` when over limit.

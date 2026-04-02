@@ -16,7 +16,7 @@ rm -rf "$APIDOCS_DIR"
 mkdir -p "$APIDOCS_DIR"
 
 # Generate intermediate binary format
-odin doc . ./examples/layer1 ./examples/layer2 ./examples/layer3 ./examples/layer4 \
+odin doc . ./examples/block1 ./examples/block2 ./examples/block3 ./examples/block4 \
     -all-packages -doc-format -out:matryoshka.odin-doc
 
 # Create config with absolute paths substituted
@@ -38,10 +38,10 @@ find . -name "index.html" -exec sed -i '/<li><a href="#pkg-generation-informatio
 # Actual generated structure:
 #   index.html                               (depth 0)
 #   matryoshka/index.html                    (depth 1)
-#   matryoshka/examples/layer1/index.html    (depth 3)
-#   matryoshka/examples/layer2/index.html    (depth 3)
-#   matryoshka/examples/layer3/index.html    (depth 3)
-#   matryoshka/examples/layer4/index.html    (depth 3)
+#   matryoshka/examples/block1/index.html    (depth 3)
+#   matryoshka/examples/block2/index.html    (depth 3)
+#   matryoshka/examples/block3/index.html    (depth 3)
+#   matryoshka/examples/block4/index.html    (depth 3)
 
 # Depth 0 — root index.html
 sed -i 's|href="/\([^/]\)|href="./\1|g' index.html
@@ -71,12 +71,22 @@ find . -name "index.html" -exec sed -i \
 # paths point to the server root instead of /apidocs/. Prefix them here.
 sed -i 's|"path": "/|"path": "/apidocs/|g' "$APIDOCS_DIR/pkg-data.js"
 
+# In matryoshka/index.html, sub-package links are emitted as ../matryoshka/examples/X.
+# When the server delivers index.html at a URL without a trailing slash
+# (e.g. /apidocs/matryoshka instead of /apidocs/matryoshka/), the browser
+# resolves ../matryoshka/ relative to the wrong base and produces a double-
+# matryoshka path (/apidocs/matryoshka/matryoshka/examples/X → 404).
+# Simplify those links to ./examples/X — same destination, no ambiguity.
+sed -i 's|href="\.\./matryoshka/examples/|href="./examples/|g' matryoshka/index.html
+
 # Copy shared assets into every package subdirectory so the browser finds
 # them regardless of which relative path a cached HTML page requests them from.
 find . -mindepth 2 -name "index.html" | while read -r f; do
     dir=$(dirname "$f")
-    cp favicon.svg "$dir/favicon.svg"
-    cp style.css   "$dir/style.css"
+    cp favicon.svg  "$dir/favicon.svg"
+    cp style.css    "$dir/style.css"
+    cp pkg-data.js  "$dir/pkg-data.js"
+    cp search.js    "$dir/search.js"
 done
 
 # Cache-busting: append ?v=<timestamp> to all shared asset references so

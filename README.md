@@ -1,21 +1,34 @@
 ![](kitchen/_logo/DancingMatryoshka.png)
 
-# Matryoshka — Layered Inter-Thread Communication
+# Matryoshka — Building Blocks for Boring Systems
 
-One layer at a time.
+One block at a time.
 Stop when you have enough.
 
 [![CI](https://github.com/g41797/matryoshka/actions/workflows/ci.yml/badge.svg)](https://github.com/g41797/matryoshka/actions/workflows/ci.yml)
 
 ---
 
-## The problem this solves
+## Why this exists
 
-Multiple threads. Same data. Two hands on the same thing.
-The answer isn't locks — that's two hands with coordination.
-**One hand at a time. Move. Don't share.**
+Most of my programming career, I built boring systems.
 
-→ [Why this exists](kitchen/docs/problem2solve.md)
+Boring means server-side.\
+Long-running.\
+Correct over clever.
+
+In open source, I followed the same path:
+
+- [syslogsidecar](https://github.com/g41797/syslogsidecar) in Go
+- [tofu](https://github.com/g41797/tofu) in Zig
+
+Matryoshka is the same expedition, in Odin.
+
+It is building blocks for otofu — an Odin port of tofu.
+
+Still joy of programming.
+
+→ [What problems this solves](https://g41797.github.io/matryoshka/)
 
 ---
 
@@ -26,21 +39,99 @@ The answer isn't locks — that's two hands with coordination.
 - You open only what you need.
 - You stop when you have enough.
 
+## Your four dolls
+
+| Doll | What you get | What it gives you |
+| ---- | ------------ | ----------------- |
+| 1    | PolyNode + MayItem        | ownership visible at every call     |
+| 2    | + Mailbox                 | items move, memory stays still      |
+| 3    | + Pool                    | allocate once, reuse always         |
+| 4    | + Infrastructure as items | infrastructure follows the same rules |
+
+**Rule:** open the next doll only when you feel pain.
+
 ---
 
-## The real rules (read this once)
+## Doll 1 — PolyNode + MayItem
 
-- ownership is visible
-- data moves
-- nothing is shared
+Two types.\
+One rule.
 
-The pieces:
-- `PolyNode` (item)
-- `MayItem` (who holds it)
-- Mailbox (movement)
-- Pool (reuse).
+```odin
+PolyNode :: struct {
+    using node: list.Node,
+    id:         int,
+}
 
-Later you notice - Mailbox and Pool are **also items**.
+MayItem :: ^Maybe(^PolyNode)
+```
+
+Every item embeds PolyNode first.
+
+```odin
+Chunk :: struct {
+    using poly: PolyNode,
+    data: [4096]byte,
+}
+```
+
+Ownership:
+
+```odin
+m: MayItem
+```
+
+* `m^ == nil` → not yours
+* `m^ != nil` → yours
+
+You must:
+
+* give it away
+* or clean it up
+
+---
+
+## Doll 2 — Mailbox
+
+Items move between threads.
+
+* `mbox_send` → ownership leaves you
+* `mbox_wait_receive` → ownership comes to you
+
+You do not share memory.\
+You move ownership.
+
+---
+
+## Doll 3 — Pool
+
+Now you reuse items.
+
+```odin
+on_get:
+- m^ == nil → create
+- m^ != nil → reset
+
+on_put:
+- set m^ = nil → destroy
+- leave m^ → keep
+```
+
+Start simple.\
+Add limits later.
+
+---
+
+## Doll 4 — Infrastructure as items
+
+Mailbox is an item.\
+Pool is an item.
+
+* you can send them
+* you can receive them
+* you own them or not
+
+Same rules.
 
 ---
 
@@ -57,7 +148,7 @@ I never read the Winnie-the-Pooh book. I found this at the very opening of Steve
 
 `^MayItem` — a pointer to an optional pointer — is not normal-looking code.
 
-The key property is **visibility** — ownership state is explicit at every call site.
+The key property is **visibility** — ownership state is explicit at every call site.\
 The alternatives lose that:
 
 | Approach | What you lose |
@@ -75,56 +166,10 @@ It will not look normal. It will look consistent.
 
 ---
 
-## The smallest possible example
-
-This is the whole system without threads or pools.
-Everything else is just scaling this idea.
-
-```odin
-import list "core:container/intrusive/list"
-import "core:fmt"
-
-PolyNode :: struct {
-    using node: list.Node,
-    id: int,
-}
-
-Chunk :: struct {
-    using poly: PolyNode,
-    value: int,
-}
-
-main :: proc() {
-    q: list.List
-
-    c := new(Chunk)
-    c.id = 1
-    c.value = 42
-
-    m: MayItem = (^PolyNode)(c)
-
-    list.push_back(&q, &m.node)
-    m^ = nil
-
-    raw := list.pop_front(&q)
-    if raw == nil { return }
-
-    m^ = (^PolyNode)(raw)
-
-    chunk := (^Chunk)(m^)
-    fmt.println(chunk.value)
-
-    free(chunk)
-    m^ = nil
-}
-````
-
----
-
 ## The same idea with threads (Mailbox)
 
-Now replace the list with a Mailbox.
-Ownership rules stay the same.
+Doll 2 in practice.\
+The ownership rule does not change at thread boundaries.
 
 ```odin
 import . "path/to/matryoshka"  // dot-import — all names available without prefix
@@ -178,100 +223,6 @@ main :: proc() {
 
 ---
 
-## Your four dolls
-
-| Doll | What you get              | What you still do not need |
-| ---- | ------------------------- | -------------------------- |
-| 1    | PolyNode + Maybe          | everything else            |
-| 2    | + Mailbox (movement)      | pool                       |
-| 3    | + Pool (reuse)            | infrastructure as items    |
-| 4    | + Infrastructure as items | — full system              |
-
-**Rule:** open the next doll only when you feel pain.
-
----
-
-## Doll 1 — PolyNode + Maybe
-
-One struct.
-One rule.
-
-```odin
-PolyNode :: struct {
-    using node: list.Node,
-    id:         int,
-}
-```
-
-Every item embeds it first.
-
-```odin
-Chunk :: struct {
-    using poly: PolyNode,
-    data: [4096]byte,
-}
-```
-
-Ownership:
-
-```odin
-m: MayItem
-```
-
-* `m^ == nil` → not yours
-* `m^ != nil` → yours
-
-You must:
-
-* give it away
-* or clean it up
-
----
-
-## Doll 2 — Mailbox
-
-Items move between threads.
-
-* `mbox_send` → ownership leaves you
-* `mbox_wait_receive` → ownership comes to you
-
-You do not share memory.
-You move ownership.
-
----
-
-## Doll 3 — Pool
-
-Now you reuse items.
-
-```odin
-on_get:
-- m^ == nil → create
-- m^ != nil → reset
-
-on_put:
-- set m^ = nil → destroy
-- leave m^ → keep
-```
-
-Start simple.
-Add limits later.
-
----
-
-## Doll 4 — Infrastructure as items
-
-Mailbox is an item.
-Pool is an item.
-
-* you can send them
-* you can receive them
-* you own them or not
-
-Same rules.
-
----
-
 ## One vocabulary everywhere
 
 * get
@@ -284,7 +235,9 @@ Same rules.
 
 ## Takeaway
 
-Threads are hard. Matryoshka does not change that. It tries to make the bumping less blind.
+Threads are hard.\
+Matryoshka does not change that.\
+It tries to make the bumping less blind.
 
 ---
 

@@ -16,7 +16,7 @@ Tag rule: `[itc: tag]` only if it references matryoshka API. No tag for generic 
 | `defer-unlock` | Lock release safety | `defer sync.mutex_unlock(&m)` immediately after lock. |
 | `errdefer` | Conditional defer | Named return + `defer if !ok { cleanup() }` for factory procs. |
 
-## Layer 1 — PolyNode + Maybe + Builder
+## Block 1 — PolyNode + Maybe + Builder
 
 | Tag | Name | One line |
 |---|---|---|
@@ -31,7 +31,7 @@ Tag rule: `[itc: tag]` only if it references matryoshka API. No tag for generic 
 | `defer-dtor` | Defer with dtor | `defer dtor(&b, &m)` — no-op if transferred (m^ == nil), cleans up if stuck. |
 | `process remaining-list` | Drain intrusive list | Pop all, switch on id, free each. Panic on unknown id. |
 
-## Layer 2 — Mailbox + Master
+## Block 2 — Mailbox + Master
 
 | Tag | Name | One line |
 |---|---|---|
@@ -41,7 +41,7 @@ Tag rule: `[itc: tag]` only if it references matryoshka API. No tag for generic 
 | `defer-dispose` | Defer mbox/pool dispose | `defer matryoshka_dispose(&m_mb)` right after new. Cleanup on all paths. |
 | `send-transfer` | Send = ownership transfer | After `mbox_send` success, `m^ == nil`. Do not touch. Deferred cleanup becomes no-op. |
 
-## Layer 3 — Pool + Hooks
+## Block 3 — Pool + Hooks
 
 | Tag | Name | One line |
 |---|---|---|

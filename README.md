@@ -19,7 +19,7 @@ Correct over clever.
 
 In open source, I followed the same path:
 
-- [syslogsidecar](https://github.com/g41797/syslogsidecar) in Go
+- [sputnik](https://github.com/g41797/sputnik) in Go
 - [tofu](https://github.com/g41797/tofu) in Zig
 
 Matryoshka is the same expedition, in Odin.

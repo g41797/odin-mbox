@@ -29,7 +29,6 @@ worker_fan_proc :: proc(t: ^thread.Thread) {
 			_, ok := mi.?
 			if ok {
 				sync.atomic_add(ctx.counter, 1)
-				// fmt.printfln("Worker %d: processed item %d", ctx.id, ptr.id)
 			}
 			dtor(&ctx.me.builder, &mi)
 		case .Closed:

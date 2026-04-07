@@ -21,15 +21,15 @@ Tag rule: `[itc: tag]` only if it references matryoshka API. No tag for generic 
 | Tag | Name | One line |
 |---|---|---|
 | `offset-zero` | PolyNode at offset 0 | Embed `using poly: PolyNode` as first field. Cast validity depends on it. |
-| `id-nonzero` | Id must be != 0 | Use `enum int` starting at 1. Zero = uninitialized = bug. |
+| `tag-non-nil` | Tag must be != nil | Use address of file-scope `PolyTag`. nil = uninitialized = bug. |
 | `maybe-container` | Maybe as ownership bit | `m^ != nil` = you own it. `m^ == nil` = not yours. One variable, whole lifetime. |
 | `two-value-unwrap` | Safe unwrap | Always `ptr, ok := m.?`. Never `ptr := m.?` (panics if nil). |
 | `one-place` | One place at a time | Never insert same node in two lists. One `prev`, one `next`, one place. |
-| `unknown-id-alloc` | Unknown id on alloc | `ctor`/`new` for unknown id → return `nil`. Same handling as allocation failure. |
-| `unknown-id-free` | Unknown id on free | `dtor`/`free`/`process remaining` for unknown id → `panic`. Programming error, not runtime condition. |
+| `unknown-tag-alloc` | Unknown tag on alloc | `ctor`/`new` for unknown tag → return `nil`. Same handling as allocation failure. |
+| `unknown-tag-free` | Unknown tag on free | `dtor`/`free`/`process remaining` for unknown tag → `panic`. Programming error, not runtime condition. |
 | `builder-alloc` | Builder stores allocator | Builder struct holds allocator. All ctor/dtor use the stored one. |
 | `defer-dtor` | Defer with dtor | `defer dtor(&b, &m)` — no-op if transferred (m^ == nil), cleans up if stuck. |
-| `process remaining-list` | Drain intrusive list | Pop all, switch on id, free each. Panic on unknown id. |
+| `process remaining-list` | Drain intrusive list | Pop all, switch on tag, free each. Panic on unknown tag. |
 
 ## Block 2 — Mailbox + Master
 
@@ -62,12 +62,12 @@ Tag rule: `[itc: tag]` only if it references matryoshka API. No tag for generic 
 | `defer-unlock` | no | no | no |
 | `errdefer` | no | no | no |
 | `offset-zero` | no | no | yes (quickref) |
-| `id-nonzero` | no | no | yes (quickref) |
+| `tag-non-nil` | no | no | yes (quickref) |
 | `maybe-container` | no | no | yes (quickref) |
 | `two-value-unwrap` | no | no | yes (deepdive) |
 | `one-place` | no | no | yes (deepdive) |
-| `unknown-id-alloc` | yes | no | yes |
-| `unknown-id-free` | yes | no | yes |
+| `unknown-tag-alloc` | yes | no | yes |
+| `unknown-tag-free` | yes | no | yes |
 | `builder-alloc` | yes | no | yes |
 | `defer-dtor` | no | no | yes (deepdive) |
 | `process remaining-list` | yes | no | yes |

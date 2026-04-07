@@ -64,7 +64,7 @@ Each layer has a **Quick Reference** (API signatures, contracts, tables) and a *
 
 ### Block 1 — PolyNode + Maybe + Builder
 
-- [Quick Reference](block1_quickref.md) — struct shapes, id/offset rules, Maybe contract, Builder signatures
+- [Quick Reference](block1_quickref.md) — struct shapes, tag/offset rules, Maybe contract, Builder signatures
 - [Deep Dive](block1_deepdive.md) — intrusive explanation, produce/consume examples, addendums (Maybe vs ^^PolyNode)
 
 Concepts from Block 1 form the fundamental building blocks for all subsequent layers of Matryoshka, providing essential item structure and ownership semantics.
@@ -76,7 +76,7 @@ Concepts from Block 1 form the fundamental building blocks for all subsequent la
 
 ### Block 3 — Pool + Recycler
 
-- [Quick Reference](block3_quickref.md) — Pool API, modes, results, PoolHooks contracts, ID rules
+- [Quick Reference](block3_quickref.md) — Pool API, modes, results, PoolHooks contracts, Tag rules
 - [Deep Dive](block3_deepdive.md) — hook examples, backpressure, full lifecycle, Master with Pool
 
 ### Block 4 — Meta — Infrastructure as Items
@@ -90,23 +90,23 @@ Concepts from Block 1 form the fundamental building blocks for all subsequent la
 
 ### Matryoshka owns
 
-- `PolyNode` shape — `node` + `id`.
+- `PolyNode` shape — `node` + `tag`.
 - `^MayItem` ownership contract across all APIs.
 - Pool modes per `pool_get` call.
 - Hook dispatch — `on_get` / `on_put` called with `ctx`.
 - Guarantee: hooks called outside pool mutex.
-- `pool_put` — sets `m^ = nil` after return, or panics on zero id.
-- Panics on unknown id only when open.
+- `pool_put` — sets `m^ = nil` after return, or panics on nil tag.
+- Panics on unknown tag only when open.
 - `mbox_close` — returns remaining chain as `list.List`. Ownership transfers to caller.
 
 ### You own
 
-- Id enum definition.
+- Tag definition.
 - Builder (Block 1). Your code, your rules.
 - Master (Block 2). Your code, your logic.
 - All `PoolHooks` hook implementations (Block 3). Your hooks, your policy.
 - Locking inside hooks — pool makes no constraints on hook internals.
-- Per-id count limits — expressed in `on_put`.
+- Per-tag count limits — expressed in `on_put`.
 - Byte-level limits — maintain a counter in `ctx`, dispose in `on_put` when over limit.
 - Receiver switch logic and casts.
 - Returning every item — via `pool_put`, `mbox_send`, or `dtor`. Disposing manually after close.

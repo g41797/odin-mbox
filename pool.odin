@@ -192,7 +192,7 @@ pool_put :: proc(p: Pool, m: ^MayItem) {
 
 // pool_put_all returns a chain of items to the pool.
 //
-// Phase 1 validates all ids in the chain before any put — ensures no partial state
+// Phase 1 validates all tags in the chain before any put — ensures no partial state
 // on bad input. Phase 2 resets each node (clears stale prev/next from the chain linkage)
 // and puts it into the pool.
 pool_put_all :: proc(p: Pool, m: ^MayItem) {

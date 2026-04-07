@@ -23,7 +23,7 @@ consume_list :: proc(l: ^list.List, alloc: mem.Allocator) {
 }
 
 // example_produce_consume allocates a mix of Event and Sensor items,
-// pushes them onto an intrusive list, then pops and dispatches on id.
+// pushes them onto an intrusive list, then pops and dispatches on tag.
 // Returns true if every item was processed and freed with no leaks.
 example_produce_consume :: proc(alloc: mem.Allocator) -> bool {
 	l: list.List

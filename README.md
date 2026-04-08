@@ -1,6 +1,6 @@
 ![](kitchen/_logo/DancingMatryoshka.png)
 
-# Matryoshka — Building Blocks for Boring Systems
+# Matryoshka — Building Blocks for Modular Monoliths in Odin
 
 One block at a time.
 Stop when you have enough.

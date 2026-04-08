@@ -1,6 +1,6 @@
 # matryoshka
 
-Building blocks for boring systems in Odin.
+Building Blocks for Modular Monoliths in Odin.
 
 ---
 

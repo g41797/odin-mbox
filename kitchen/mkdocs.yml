@@ -1,7 +1,7 @@
 site_name: matryoshka
 docs_dir: docs
 site_dir: output
-site_description: Building blocks for boring systems in Odin
+site_description: Building Blocks for Modular Monoliths in Odin
 repo_url: https://github.com/g41797/matryoshka/
 repo_name: matryoshka on GitHub
 
@@ -35,7 +35,7 @@ theme:
 
 nav:
   - Home: problem2solve.md
-# - Home: addendums/readme.md
+  # - Home: addendums/readme.md
   - Doll 1 — PolyNode + MayItem:
       - Quick Reference: block1_quickref.md
       - Deep Dive: block1_deepdive.md

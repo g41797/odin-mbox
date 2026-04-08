@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 /*
-Building blocks for boring systems in Odin.
+Building Blocks for Modular Monoliths in Odin.
 
 Block 1 — PolyNode + MayItem: item and ownership.
 
